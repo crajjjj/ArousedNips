@@ -1,7 +1,5 @@
 Scriptname TTT_ArousedNipsDebugSpellEffectScript extends ActiveMagicEffect  
 
-;TTT_ArousedNipsQuest Property TTT_ArousedNipsMainQuest Auto
-;TTT_ArousedNipsConfigMenu Property TTT_ArousedNipsMenu Auto
 TTT_ArousedNipsAlias Property TTT_ArousedNipsPlayerAlias Auto
 
 Event OnEffectStart(Actor akTarget, Actor akCaster)
@@ -51,13 +49,13 @@ function analyzeBase(Actor who)
 	
 	printf("TRI file CBBE: "+NiOverride.getStringExtraData(who,false, "BaseShape", "BODYTRI"))
 	printf("TRI file UUNP: "+NiOverride.getStringExtraData(who,false, "UUNP", "BODYTRI"))
+	printf("TRI file 3BA: "+NiOverride.getStringExtraData(who,false, "3BA", "BODYTRI"))
 	printf("-----")
 endFunction
 
 function analyzeMorphs(Actor who)
 	ActorBase base = who.getLeveledActorBase()
-	
-	
+		
 	printf("Current BodyMorphs: ")
 	
 	string[] morphs = NiOverride.getMorphNames(who)
