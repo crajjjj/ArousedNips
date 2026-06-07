@@ -31,7 +31,7 @@ import MiscUtil
 int function GetVersion()
 	;format = (M)MmmPP
 	;12345 => 1.23.45
-	return 10104
+	return 10105
 endFunction
 
 Event OnVersionUpdate(Int ver)

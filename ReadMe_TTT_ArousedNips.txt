@@ -31,21 +31,23 @@ Just remove the mod. NiOverride will automatically remove all the morphs.
 yeh. That's all.
 
 Changes
-1.1.4 (this build, w/ Areola Fix + 3BA bundle)
+1.1.5
 - Multi-fork compatibility per the SLA NG readme's "Supporting Both OSL Aroused
   and SLA NG" guidance:
     * Version detection now goes through slaframeworkscr.GetVersion() (portable
       across both forks) instead of the SLA-NG-only slaConfig path that was
-      aborting on every real install.
+      aborting on every real install -- both fork-detection if-branches were
+      previously inverted so the alias bailed out on every supported version.
     * Arousal reads now use slaframeworkscr.GetActorArousal() instead of the
-      cached slaArousal faction rank. Three benefits: it works the same on OSL
-      Aroused's stub, on legacy forks, and on SLA NG / SLO NG; it triggers a
-      fresh recalculation rather than returning a stale cached value; and it's
-      properly clamped 0-100.
+      cached slaArousal faction rank. Works the same on OSL Aroused's stub,
+      legacy forks, and SLA NG / SLO NG; triggers a fresh recalculation rather
+      than returning a stale cached value; properly clamped 0-100.
     * Version gate: >= 20200000 -> SLA NG / SLO NG (full API); > 0 -> OSL stub
       / SLAXSE2022 / legacy SSELoose / eXtended LE (read-only path still works);
-      0 -> not installed, abort. MCM rows updated to "NG / 3.x" vs
+      0 -> not installed, abort. MCM rows relabeled "NG / 3.x" and
       "Legacy / OSL stub".
+    * Null-check on sla_Framework so an unwired property aborts cleanly with
+      a notification instead of null-crashing the alias.
 - Player-only poll: the alias now refreshes the player's morphs every
   PollInterval seconds (default 5s, MCM-configurable 0-60). SLA NG only
   broadcasts sla_UpdateComplete on its scheduled scan (default 120s), so
@@ -53,21 +55,44 @@ Changes
   wouldn't move the morphs until the next heartbeat. Setting the slider to 0
   disables the poll and reverts to heartbeat-only behaviour. NPCs continue to
   update on the SLA heartbeat path only.
-- MCM: the "SLAroused 29+" requirements row now displays correctly (was hidden
-  by a duplicate elseif condition).
-- MCM Import Settings no longer corrupts the DebugMode / IgnoreMales option IDs;
-  imported values are now applied to the quest properties instead of being
-  written into the option-ID variables.
-- MCM Export Settings: fixed an infinite loop that would hang the Papyrus VM
-  whenever a morph slot was empty.
-- MCM Import morph-list loop bound fixed (was effectively while-i<100 due to
-  an || that should have been &&); morph table sizing aligned to 128 to match
-  the quest's array allocation.
-- First-time install no longer wipes the default morph table when no
-  ArousedNips/morph.json exists yet.
+- MCM:
+    * The "SLAroused 29+" requirements row now displays correctly (was hidden
+      by a duplicate elseif condition).
+    * Import Settings no longer corrupts the DebugMode / IgnoreMales option
+      IDs; imported values are applied to the quest properties instead.
+    * Export Settings: fixed an infinite loop that would hang the Papyrus VM
+      whenever a morph slot was empty.
+    * Import morph-list loop bound fixed (was effectively while-i<100 due to
+      an || that should have been &&); morph table sizing aligned to 128 to
+      match the quest's array allocation.
+    * First-time install no longer wipes the default morph table when no
+      ArousedNips/morph.json exists yet.
+    * OnPageReset no longer renders a bogus blank slider row after the first
+      empty morph name.
+    * Performance page added with the player poll slider.
+    * Info text for the Ignore Males toggle no longer falls through to the
+      generic "by TTT" tagline.
+- Save handling: OnVersionUpdate no longer Stop()s + Start()s the main quest
+  on version bumps -- that was wiping MorphNames / MaxValue / PollInterval
+  and tearing down the polling registration. New poll properties are added
+  Auto Hidden with sensible defaults so older saves load cleanly.
+- UpdateActor honours imported morph counts up to 128 (was hard-coded to 4,
+  silently dropping any morph past index 3 even though the MCM rendered them);
+  GetActorArousal result clamped [0, 100] symmetrically so future negative
+  modifiers can't flip the morph direction; GetLeveledActorBase() cached so
+  the debug branch isn't calling it three times.
+- NPC scan no longer arbitrarily capped at the first 20 actors -- now scans
+  up to whatever ScanCellNPCsByFaction returns (max 127); duplicated
+  debug/non-debug branches of OnArousalComputed collapsed into one.
 - JsonUtil calls cleaned up: removed unsupported named-argument syntax,
-  added proper bool->int->string casts on export, and the morph list is
-  cleared before each export so repeated exports don't accumulate duplicates.
+  added proper bool->int->string casts on export, ImportUserSettings
+  reallocates MaxValue together with MorphNames so re-imports with fewer
+  morphs can't leave stale tail values, and the morph list is cleared before
+  each export so repeated exports don't accumulate duplicates.
+
+1.1.4
+- Bundled re-pack with Areola Fix patch and 3BA body morphs.
+- ESP flagged ESL for AE load-order safety.
 
 1.1.2
 - Fixed the MCM toggle "Ignore Males" not actually doing anything. Oops.
