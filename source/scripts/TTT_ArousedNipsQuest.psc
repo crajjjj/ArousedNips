@@ -47,6 +47,14 @@ float Property DefaultPollInterval = 5.0 AutoReadOnly Hidden
 float Property ScanCellRadius = 1000.0 Auto Hidden
 float Property DefaultScanCellRadius = 1000.0 AutoReadOnly Hidden
 
+; Last-selected intensity preset (Minimal / Natural / Noticeable / Exaggerated)
+; from the MCM combobox. Display-only -- the actual values are loaded from
+; SKSE\Plugins\StorageUtilData\ArousedNips\IntensityPresets\<name>.json into
+; MaxValue[] at selection time. Empty string means the user hasn't picked one
+; yet (or did a Reset, which clears this back to ""), and the combobox shows
+; "Choose...".
+String Property IntensityPreset = "" Auto Hidden
+
 
 
 Event OnInit()
@@ -101,6 +109,7 @@ Function ResetAllState()
 	IgnoreFemaleBeast = true
 	PollInterval      = DefaultPollInterval
 	ScanCellRadius    = DefaultScanCellRadius
+	IntensityPreset   = ""
 
 	; Re-run requirements check so isNioOk / isSLAroused28 / isSLAroused29 reflect
 	; the live framework state (and on first install, register the mod events + poll).

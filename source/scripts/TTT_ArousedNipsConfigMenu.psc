@@ -18,6 +18,12 @@ int oidIgnoreDead
 int oidIgnoreMaleBeast
 int oidIgnoreFemaleBeast
 
+; Combobox options for the intensity preset. Hardcoded in fixed order so the
+; dropdown shows "Minimal" -> "Exaggerated" rather than alphabetical.
+; Backed by JSON files at SKSE\Plugins\StorageUtilData\ArousedNips\
+; IntensityPresets\<name>.json. Allocated lazily in GetIntensityPresetNames().
+String[] _intensityPresetNames
+
 int[] oidMaxValue
 
 string version
@@ -35,15 +41,18 @@ import MiscUtil
 int function GetVersion()
 	;format = (M)MmmPP
 	;12345 => 1.23.45
-	; 20101 = 2.01.01. The 2.01.00 baseline was chosen to skip ahead of the
+	; 20102 = 2.01.02. The 2.01.00 baseline was chosen to skip ahead of the
 	; Anon 2.0.4 fork (20004) so SkyUI's OnVersionUpdate gate
 	; (CurrentVersion < GetVersion) fires when upgrading from a save that
 	; previously had 2.0.4 installed -- clears the stale "2.0.4" MCM header
 	; string and triggers the fork-to-1.1.5-based transition path.
-	; 2.01.01 adds the MCM Recovery > Reset button and the SLA framework
+	; 2.01.01 added the MCM Recovery > Reset button and the SLA framework
 	; Quest.GetQuest fallback (handles ESPs where the sla_Framework Auto
 	; property is unwired).
-	return 20101
+	; 2.01.02 adds the Intensity preset combobox (Minimal / Natural /
+	; Noticeable / Exaggerated, backed by JSON files under
+	; SKSE\Plugins\StorageUtilData\ArousedNips\IntensityPresets\).
+	return 20102
 endFunction
 
 Event OnVersionUpdate(Int ver)
@@ -154,6 +163,18 @@ event OnPageReset(string page)
 		oidPollInterval    = AddSliderOption("Player poll interval (s)", TTT_ArousedNipsMainQuest.PollInterval, "{1}", hasReqFlag)
 		oidScanCellRadius  = AddSliderOption("NPC scan radius (units)",  TTT_ArousedNipsMainQuest.ScanCellRadius, "{0}", hasReqFlag)
 
+		AddHeaderOption("Intensity preset")
+		; Display the last-selected preset name, or a placeholder if none selected
+		; yet (fresh install, post-Reset). Selecting one overwrites every MaxValue
+		; slider with the preset's values for whichever morphs are currently
+		; loaded -- sliders for morphs not in the preset (e.g. user-imported
+		; morphs the bundled presets don't cover) keep their current values.
+		String presetLabel = TTT_ArousedNipsMainQuest.IntensityPreset
+		If presetLabel == ""
+			presetLabel = "Choose..."
+		EndIf
+		AddMenuOptionST("State_IntensityPreset", "Preset", presetLabel, hasReqFlag)
+
 		AddHeaderOption("Debug")
 		oidIgnoreMales       = AddToggleOption("Ignore Males",          TTT_ArousedNipsMainQuest.IgnoreMales)
 		oidIgnoreDead        = AddToggleOption("Ignore Dead",           TTT_ArousedNipsMainQuest.IgnoreDead)
@@ -204,6 +225,40 @@ state State_Reset
 		TTT_ArousedNipsMainQuest.ResetAllState()
 		SetTextOptionValueST("Done")
 		ForcePageReset()
+	endevent
+endstate
+
+state State_IntensityPreset
+	event OnMenuOpenST()
+		String[] names = GetIntensityPresetNames()
+		SetMenuDialogOptions(names)
+		; Highlight the currently-selected preset in the dropdown (if any).
+		int si = 0
+		int i = 0
+		String current = TTT_ArousedNipsMainQuest.IntensityPreset
+		While i < names.Length
+			If names[i] == current
+				si = i
+			EndIf
+			i += 1
+		EndWhile
+		SetMenuDialogStartIndex(si)
+	endevent
+	event OnMenuAcceptST(int index)
+		String[] names = GetIntensityPresetNames()
+		If index < 0 || index >= names.Length
+			return
+		EndIf
+		SetMenuOptionValueST("Loading...")
+		String preset = names[index]
+		ApplyIntensityPreset(preset)
+		TTT_ArousedNipsMainQuest.IntensityPreset = preset
+		SetMenuOptionValueST(preset)
+		; Redraw so the morph sliders pick up their new MaxValue.
+		ForcePageReset()
+	endevent
+	event OnHighlightST()
+		SetInfoText("Overwrites the per-morph MaxValue sliders with a named preset. Minimal = barely visible at peak arousal. Natural = realistic when fully aroused. Noticeable = current install defaults; clearly visible. Exaggerated = strongly emphasised. Your tuning will be replaced; the Reset all state button clears it back to Noticeable-equivalent built-in defaults.")
 	endevent
 endstate
 
@@ -402,6 +457,60 @@ Bool Function ImportUserSettings()
 	endif
 	UnLoad(TTT_AN_Morph_file, false, false)
 	return TRUE
+EndFunction
+
+String[] Function GetIntensityPresetNames()
+	{Lazy-allocate the hardcoded preset list. Order is intentional (subtle ->
+	 strong) and matches the four JSON files shipped under SKSE\Plugins\
+	 StorageUtilData\ArousedNips\IntensityPresets\. Power users can drop new
+	 JSON files in that folder but won't see them in the combobox -- the list
+	 is fixed.}
+	If !_intensityPresetNames
+		_intensityPresetNames = new String[4]
+		_intensityPresetNames[0] = "Minimal"
+		_intensityPresetNames[1] = "Natural"
+		_intensityPresetNames[2] = "Noticeable"
+		_intensityPresetNames[3] = "Exaggerated"
+	EndIf
+	Return _intensityPresetNames
+EndFunction
+
+String Function NormalizeMorphKey(String morphKey)
+	{Normalize the 4 CapitalCase built-in morph names (NippleSize / NippleLength
+	 / NipplePerkiness / AreolaSize -- set by Quest.OnInit / ResetAllState) to
+	 their lowercase forms so the intensity preset JSONs can stay all-lowercase.
+	 The 23-morph Anon 2.0.4 preset already uses lowercase, so its keys pass
+	 through unchanged.}
+	If morphKey == "NippleSize"
+		Return "nipplesize"
+	ElseIf morphKey == "NippleLength"
+		Return "nipplelength"
+	ElseIf morphKey == "NipplePerkiness"
+		Return "nippleperkiness"
+	ElseIf morphKey == "AreolaSize"
+		Return "areolasize"
+	EndIf
+	Return morphKey
+EndFunction
+
+Function ApplyIntensityPreset(String presetName)
+	{Load <presetName>.json from IntensityPresets/ and overwrite MaxValue[i] for
+	 every morph in MorphNames[] that has a matching key in the preset. Morphs
+	 absent from the preset keep their current MaxValue, so user-imported morphs
+	 the preset doesn't cover aren't zeroed out.}
+	String path = "ArousedNips/IntensityPresets/" + presetName
+	Load(path)
+	int i = 0
+	String[] morphNames = TTT_ArousedNipsMainQuest.MorphNames
+	while i < 128 && morphNames[i] != ""
+		String morphKey = NormalizeMorphKey(morphNames[i])
+		String value = GetStringValue(path, morphKey, "")
+		If value != ""
+			TTT_ArousedNipsMainQuest.MaxValue[i] = value as float
+		EndIf
+		i += 1
+	EndWhile
+	UnLoad(path, false, false)
 EndFunction
 
 Bool Function ExportUserSettings()

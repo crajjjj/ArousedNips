@@ -63,6 +63,32 @@ Just remove the mod. NiOverride will automatically remove all the morphs.
 yeh. That's all.
 
 Changes
+2.1.2 (by crajjjj)
+- New MCM "Intensity preset" combobox under the Performance header. Four
+  fixed presets (Minimal / Natural / Noticeable / Exaggerated) overwrite
+  every morph's MaxValue slider in a single click. Morphs in your current
+  list that the preset doesn't cover (e.g. custom-imported morphs) keep
+  their current values -- only the morphs the preset names get touched.
+  Defaults:
+    * Minimal     -- subtle, barely perceptible even at peak arousal.
+    * Natural     -- realistic at peak arousal; what most users probably
+                     want for "realistic morphing during scenes."
+    * Noticeable  -- matches the install defaults (NippleSize -0.75,
+                     NippleLength 1.0, NipplePerkiness 1.5). Clearly
+                     visible at moderate arousal.
+    * Exaggerated -- strongly emphasised at peak; ~2x the install defaults
+                     for the nipple morphs, plus non-zero values across
+                     most labia / vagina / clit morphs from the bundled
+                     preset.
+  Preset values are stored as plain JSON at
+  Data\SKSE\Plugins\StorageUtilData\ArousedNips\IntensityPresets\<Name>.json
+  -- power users can edit the values directly, no recompile needed for
+  value tweaks. Combobox order (subtle -> strong) is hardcoded so it stays
+  intuitive regardless of file order in the folder.
+- The Recovery > Reset button now also clears the IntensityPreset display
+  string, so after Reset the combobox correctly shows "Choose..." instead
+  of the last-picked preset name.
+
 2.1.1 (by crajjjj)
 - New MCM "Recovery > Reset all state" button. Wipes the persisted morph
   table back to 4 nipple defaults, resets every toggle / slider to its on-
