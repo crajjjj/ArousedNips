@@ -33,30 +33,36 @@ float Property DefaultPollInterval = 5.0 AutoReadOnly Hidden
 Event OnInit()
 	{First-time setup. Setting all defaults.}
 	;Note: this initialization is performed only once.
-	
+
 	Debug.Notification("ArousedNips: first time initialization")
 	Debug.Trace("TTT_ArousedNips: first time initialization")
-	
-	
+
+
 	MaxValue = new float[128]
 	MaxValue[0] = DefaultSize
 	MaxValue[1] = DefaultLength
 	MaxValue[2] = DefaultCone
 	MaxValue[3] = DefaultArea
-	
+
 	ResetDefaults()
-	
+
 	MorphNames = new String[128]
 	MorphNames[0] = "NippleSize"
 	MorphNames[1] = "NippleLength"
 	MorphNames[2] = "NipplePerkiness"
 	MorphNames[3] = "AreolaSize"
-	
-	; Import Settings
-	CONFIGMENU.ImportUserSettings()
-	
+
+	; DELIBERATELY do NOT call CONFIGMENU.ImportUserSettings() here.
+	; This OnInit can fire during MCM registration (OnConfigRegister -> Quest.Start()),
+	; and calling back into CONFIGMENU while SkyUI is still mid-registering creates a
+	; cross-script lock contention that wedges the Papyrus VM hard enough to
+	; freeze the game (reproduced after the 1.1.5 bump). The user can click
+	; "Import Settings" from the MCM at any time to restore previously-exported
+	; JSON config -- and the quest's MorphNames / MaxValue / DebugMode / IgnoreMales
+	; properties persist in the cosave anyway, so on a normal upgrade nothing is lost.
+
 	TTT_ArousedNipsPlayerAlias.OnPlayerLoadGame()
-	
+
 	Debug.Notification("ArousedNips: initialization complete")
 	debug.Trace("TTT_ArousedNips: initialization complete")
 EndEvent

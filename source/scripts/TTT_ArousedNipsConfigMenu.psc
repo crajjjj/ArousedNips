@@ -36,20 +36,21 @@ endFunction
 
 Event OnVersionUpdate(Int ver)
 	{Called by SKI_ConfigBase when the saved version is below GetVersion(). Update
-	 the cached display string; no schema migration is required for the
-	 1.1.x line, so we deliberately do NOT stop()+start() the main quest -- that
-	 would wipe MorphNames, MaxValue, PollInterval, and tear down the alias's
-	 polling registration on every version bump.}
+	 the cached display string only.
+
+	 We deliberately do NOT call anything cross-script here (no stop()/start(), no
+	 RestartPolling on the alias). OnVersionUpdate fires DURING SkyUI's MCM
+	 registration on first-install / first-load-after-bump, when the MCM script
+	 lock is contended. Reaching across to the Quest / Alias from here was
+	 reproduced freezing the game on the 1.1.4 -> 1.1.5 bump. The poll is
+	 (re-)registered by Alias.OnPlayerLoadGame on every save load anyway, so no
+	 force-restart is needed.}
 	int Major = ver/10000
 	int Minor = (ver%10000)/100
 	int Patch = ver%100
 	version = Major+"."+Minor+"."+Patch
 	debug.Notification("ArousedNips: Updating to "+version)
 	debug.Trace("TTT_ArousedNips: Updating to "+version)
-	; Re-arm the poll loop using the (possibly newly-introduced) PollInterval
-	; property so saves from versions that pre-date the poll start ticking
-	; immediately on load instead of waiting for the next save/load.
-	TTT_ArousedNipsMainQuest.TTT_ArousedNipsPlayerAlias.RestartPolling()
 EndEvent
 
 Event OnConfigInit()

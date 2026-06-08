@@ -32,6 +32,14 @@ yeh. That's all.
 
 Changes
 1.1.5
+- FREEZE FIX: removed the Quest.OnInit -> CONFIGMENU.ImportUserSettings()
+  callback and the OnVersionUpdate -> RestartPolling() cross-script call.
+  Both could fire while SkyUI was mid-registering the MCM, and the resulting
+  cross-script lock contention wedged the Papyrus VM hard enough to freeze
+  the game on first install / first load after the version bump. Auto-import
+  on first install is intentionally gone -- cosave persistence already covers
+  upgrades; users who want to restore an exported JSON config can click
+  "Import Settings" from the MCM at any time.
 - Multi-fork compatibility per the SLA NG readme's "Supporting Both OSL Aroused
   and SLA NG" guidance:
     * Version detection now goes through slaframeworkscr.GetVersion() (portable
