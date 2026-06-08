@@ -141,7 +141,7 @@ Event OnArousalComputed(string eventName, string argString, float argNum, form s
 		return
 	EndIf
 
-	Actor[] theActors = MiscUtil.ScanCellNPCsByFaction(sla_Framework.slaArousal, Game.GetPlayer(), 1000, 0, 127, true)
+	Actor[] theActors = MiscUtil.ScanCellNPCsByFaction(sla_Framework.slaArousal, Game.GetPlayer(), TTT_ArousedNipsMainQuest.ScanCellRadius, 0, 127, TTT_ArousedNipsMainQuest.IgnoreDead)
 	; theActors can have null slots if SLA's faction faction-rank cache is mid-update.
 	int i = 0
 	int len = theActors.length
@@ -161,10 +161,29 @@ endEvent
 Function UpdateActor(Actor who, bool doDebug=false, int modifier=0)
 	{Set morphs of "who" according to their arousal, offset by "modifier".}
 	ActorBase whoBase = who.GetLeveledActorBase()
-	If TTT_ArousedNipsMainQuest.IgnoreMales && (whoBase.GetSex() == 0)
+	; ActorBase.GetSex() encodes both gender and creature-ness:
+	;   0 = male NPC, 1 = female NPC, 2 = male creature, 3 = female creature.
+	; This lets us split the "Ignore Males" (humanoid) and "Ignore Beast"
+	; (creature) filters without needing a keyword lookup.
+	int sex = whoBase.GetSex()
+	String skipReason = ""
+	If TTT_ArousedNipsMainQuest.IgnoreMales && sex == 0
+		skipReason = "is male"
+	ElseIf TTT_ArousedNipsMainQuest.IgnoreMaleBeast && sex == 2
+		skipReason = "is male beast"
+	ElseIf TTT_ArousedNipsMainQuest.IgnoreFemaleBeast && sex == 3
+		skipReason = "is female beast"
+	ElseIf TTT_ArousedNipsMainQuest.IgnoreDead && who.IsDead()
+		; Dead NPCs are already filtered out at the OnArousalComputed cell-scan
+		; level (we pass IgnoreDead into ScanCellNPCsByFaction), but the player
+		; poll and the debug spell can still hit this path with a corpse target,
+		; so we re-check here.
+		skipReason = "is dead"
+	EndIf
+	If skipReason != ""
 		If doDebug
-			debug.Notification("ArousedNips: "+whoBase.GetName()+" is male, skipping")
-			debug.Trace("TTT_ArousedNips: "+whoBase.GetName()+", is male, skipping")
+			debug.Notification("ArousedNips: "+whoBase.GetName()+" "+skipReason+", skipping")
+			debug.Trace("TTT_ArousedNips: "+whoBase.GetName()+" "+skipReason+", skipping")
 		EndIF
 		return
 	EndIf

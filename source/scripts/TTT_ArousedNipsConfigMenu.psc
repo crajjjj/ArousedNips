@@ -13,6 +13,10 @@ int oidIgnoreMales
 int oidImportS
 int oidExportS
 int oidPollInterval
+int oidScanCellRadius
+int oidIgnoreDead
+int oidIgnoreMaleBeast
+int oidIgnoreFemaleBeast
 
 int[] oidMaxValue
 
@@ -31,7 +35,12 @@ import MiscUtil
 int function GetVersion()
 	;format = (M)MmmPP
 	;12345 => 1.23.45
-	return 10105
+	; 20100 = 2.01.00. Skips ahead of the Anon 2.0.4 fork (20004) so SkyUI's
+	; OnVersionUpdate gate (CurrentVersion < GetVersion) fires when upgrading
+	; from a save that previously had 2.0.4 installed -- clears the stale
+	; "2.0.4" MCM header string and triggers the fork-to-1.1.5-based-2.1.0
+	; transition path.
+	return 20100
 endFunction
 
 Event OnVersionUpdate(Int ver)
@@ -139,11 +148,15 @@ event OnPageReset(string page)
 		endif
 		
 		AddHeaderOption("Performance")
-		oidPollInterval = AddSliderOption("Player poll interval (s)", TTT_ArousedNipsMainQuest.PollInterval, "{1}", hasReqFlag)
+		oidPollInterval    = AddSliderOption("Player poll interval (s)", TTT_ArousedNipsMainQuest.PollInterval, "{1}", hasReqFlag)
+		oidScanCellRadius  = AddSliderOption("NPC scan radius (units)",  TTT_ArousedNipsMainQuest.ScanCellRadius, "{0}", hasReqFlag)
 
 		AddHeaderOption("Debug")
-		oidIgnoreMales = AddToggleOption("Ignore Males", TTT_ArousedNipsMainQuest.IgnoreMales)
-		oidDebugMode = AddToggleOption("Debug mode", TTT_ArousedNipsMainQuest.DebugMode)
+		oidIgnoreMales       = AddToggleOption("Ignore Males",          TTT_ArousedNipsMainQuest.IgnoreMales)
+		oidIgnoreDead        = AddToggleOption("Ignore Dead",           TTT_ArousedNipsMainQuest.IgnoreDead)
+		oidIgnoreMaleBeast   = AddToggleOption("Ignore Male Beasts",    TTT_ArousedNipsMainQuest.IgnoreMaleBeast)
+		oidIgnoreFemaleBeast = AddToggleOption("Ignore Female Beasts",  TTT_ArousedNipsMainQuest.IgnoreFemaleBeast)
+		oidDebugMode         = AddToggleOption("Debug mode",            TTT_ArousedNipsMainQuest.DebugMode)
 		AddHeaderOption("IMPORT - EXPORT")
 		AddTextOptionST("State_Page_01","Import Settings","Import", a_flags)
 		AddTextOptionST("State_Page_02","Export Settings","Export", a_flags)
@@ -182,6 +195,18 @@ event OnOptionSelect(int option)
 		TTT_ArousedNipsMainQuest.IgnoreMales = !TTT_ArousedNipsMainQuest.IgnoreMales
 		SetToggleOptionValue(option,TTT_ArousedNipsMainQuest.IgnoreMales)
 		return
+	elseif option == oidIgnoreDead
+		TTT_ArousedNipsMainQuest.IgnoreDead = !TTT_ArousedNipsMainQuest.IgnoreDead
+		SetToggleOptionValue(option,TTT_ArousedNipsMainQuest.IgnoreDead)
+		return
+	elseif option == oidIgnoreMaleBeast
+		TTT_ArousedNipsMainQuest.IgnoreMaleBeast = !TTT_ArousedNipsMainQuest.IgnoreMaleBeast
+		SetToggleOptionValue(option,TTT_ArousedNipsMainQuest.IgnoreMaleBeast)
+		return
+	elseif option == oidIgnoreFemaleBeast
+		TTT_ArousedNipsMainQuest.IgnoreFemaleBeast = !TTT_ArousedNipsMainQuest.IgnoreFemaleBeast
+		SetToggleOptionValue(option,TTT_ArousedNipsMainQuest.IgnoreFemaleBeast)
+		return
 	endif
 endEvent
 
@@ -196,10 +221,26 @@ event OnOptionDefault(int option)
 		TTT_ArousedNipsMainQuest.IgnoreMales = true
 		SetToggleOptionValue(option,true)
 		return
+	Elseif option == oidIgnoreDead
+		TTT_ArousedNipsMainQuest.IgnoreDead = true
+		SetToggleOptionValue(option,true)
+		return
+	Elseif option == oidIgnoreMaleBeast
+		TTT_ArousedNipsMainQuest.IgnoreMaleBeast = true
+		SetToggleOptionValue(option,true)
+		return
+	Elseif option == oidIgnoreFemaleBeast
+		TTT_ArousedNipsMainQuest.IgnoreFemaleBeast = true
+		SetToggleOptionValue(option,true)
+		return
 	Elseif option == oidPollInterval
 		TTT_ArousedNipsMainQuest.PollInterval = TTT_ArousedNipsMainQuest.DefaultPollInterval
 		SetSliderOptionValue(option, TTT_ArousedNipsMainQuest.PollInterval, "{1}")
 		TTT_ArousedNipsMainQuest.TTT_ArousedNipsPlayerAlias.RestartPolling()
+		return
+	Elseif option == oidScanCellRadius
+		TTT_ArousedNipsMainQuest.ScanCellRadius = TTT_ArousedNipsMainQuest.DefaultScanCellRadius
+		SetSliderOptionValue(option, TTT_ArousedNipsMainQuest.ScanCellRadius, "{0}")
 		return
 	Else
 		int i = 0
@@ -220,6 +261,12 @@ Event OnOptionSliderOpen(Int option)
 		SetSliderDialogInterval(0.5)
 		SetSliderDialogStartValue(TTT_ArousedNipsMainQuest.PollInterval)
 		SetSliderDialogDefaultValue(TTT_ArousedNipsMainQuest.DefaultPollInterval)
+		return
+	ElseIf option == oidScanCellRadius
+		SetSliderDialogRange(100.0, 10000.0)
+		SetSliderDialogInterval(100.0)
+		SetSliderDialogStartValue(TTT_ArousedNipsMainQuest.ScanCellRadius)
+		SetSliderDialogDefaultValue(TTT_ArousedNipsMainQuest.DefaultScanCellRadius)
 		return
 	EndIf
 
@@ -245,6 +292,10 @@ Event OnOptionSliderAccept(Int option, Float value)
 		SetSliderOptionValue(option, TTT_ArousedNipsMainQuest.PollInterval, "{1}")
 		TTT_ArousedNipsMainQuest.TTT_ArousedNipsPlayerAlias.RestartPolling()
 		return
+	ElseIf option == oidScanCellRadius
+		TTT_ArousedNipsMainQuest.ScanCellRadius = value
+		SetSliderOptionValue(option, TTT_ArousedNipsMainQuest.ScanCellRadius, "{0}")
+		return
 	EndIf
 
 	int i = 0
@@ -263,9 +314,17 @@ Event OnOptionHighlight(Int option)
 	If option == oidDebugMode
 		SetInfoText("Will print debug info to screen and log.")
 	ElseIf option == oidIgnoreMales
-		SetInfoText("If on, male actors are skipped entirely (no morph updates). On by default.")
+		SetInfoText("If on, male NPC actors are skipped entirely (no morph updates). On by default.")
+	ElseIf option == oidIgnoreDead
+		SetInfoText("If on, dead actors are skipped (no morphs applied to corpses). Filters at both the cell scan and the player poll. On by default.")
+	ElseIf option == oidIgnoreMaleBeast
+		SetInfoText("If on, male creature actors (animals/monsters, not the playable beast races) are skipped. On by default.")
+	ElseIf option == oidIgnoreFemaleBeast
+		SetInfoText("If on, female creature actors (animals/monsters, not the playable beast races) are skipped. On by default.")
 	ElseIf option == oidPollInterval
 		SetInfoText("Seconds between player-only arousal refreshes. SLA NG only broadcasts every 120s by default, so polling keeps morphs responsive mid-scene. Set to 0 to disable polling (NPC morphs still update on SLA's scan tick).")
+	ElseIf option == oidScanCellRadius
+		SetInfoText("Radius (game units) the SLA heartbeat scans for aroused NPCs. Default 1000 ~= one room. Larger values catch more actors but cost more per heartbeat tick.")
 	Else
 		int i = 0
 		while i < 4
@@ -285,8 +344,15 @@ Bool Function ImportUserSettings()
 	; About page
 	; data/SKSE/Plugins/StorageUtilData/ArousedNips/config.json
 	Load(TTT_AN_Config_file)
-	TTT_ArousedNipsMainQuest.DebugMode   = (GetStringValue(TTT_AN_Config_file, "debugmode",   "0") as int) as bool
-	TTT_ArousedNipsMainQuest.IgnoreMales = (GetStringValue(TTT_AN_Config_file, "ignoremales", "1") as int) as bool
+	TTT_ArousedNipsMainQuest.DebugMode         = (GetStringValue(TTT_AN_Config_file, "debugmode",         "0") as int) as bool
+	TTT_ArousedNipsMainQuest.IgnoreMales       = (GetStringValue(TTT_AN_Config_file, "ignoremales",       "1") as int) as bool
+	; 2.1.0 cherry-picked toggles & slider -- missing-defaults match the quest's
+	; declared property defaults so older config.json files (pre-2.1.0) hydrate
+	; cleanly into the new conservative defaults instead of zero/false.
+	TTT_ArousedNipsMainQuest.IgnoreDead        = (GetStringValue(TTT_AN_Config_file, "ignoredead",        "1") as int) as bool
+	TTT_ArousedNipsMainQuest.IgnoreMaleBeast   = (GetStringValue(TTT_AN_Config_file, "ignoremalebeast",   "1") as int) as bool
+	TTT_ArousedNipsMainQuest.IgnoreFemaleBeast = (GetStringValue(TTT_AN_Config_file, "ignorefemalebeast", "1") as int) as bool
+	TTT_ArousedNipsMainQuest.ScanCellRadius    = GetStringValue(TTT_AN_Config_file, "scancellradius", "1000") as float
 	UnLoad(TTT_AN_Config_file, false, false)
 
 	; Sliders
@@ -320,8 +386,12 @@ Bool Function ExportUserSettings()
 	Load(TTT_AN_Config_file)
 	Load(TTT_AN_Morph_file)
 	; About page
-	SetStringValue(TTT_AN_Config_file, "debugmode",   (TTT_ArousedNipsMainQuest.DebugMode   as int) as string)
-	SetStringValue(TTT_AN_Config_file, "ignoremales", (TTT_ArousedNipsMainQuest.IgnoreMales as int) as string)
+	SetStringValue(TTT_AN_Config_file, "debugmode",         (TTT_ArousedNipsMainQuest.DebugMode         as int) as string)
+	SetStringValue(TTT_AN_Config_file, "ignoremales",       (TTT_ArousedNipsMainQuest.IgnoreMales       as int) as string)
+	SetStringValue(TTT_AN_Config_file, "ignoredead",        (TTT_ArousedNipsMainQuest.IgnoreDead        as int) as string)
+	SetStringValue(TTT_AN_Config_file, "ignoremalebeast",   (TTT_ArousedNipsMainQuest.IgnoreMaleBeast   as int) as string)
+	SetStringValue(TTT_AN_Config_file, "ignorefemalebeast", (TTT_ArousedNipsMainQuest.IgnoreFemaleBeast as int) as string)
+	SetStringValue(TTT_AN_Config_file, "scancellradius",     TTT_ArousedNipsMainQuest.ScanCellRadius              as string)
 	; Clear any previously-exported list so we don't accumulate duplicates across exports.
 	StringListClear(TTT_AN_Morph_file, "morphs")
 	; Sliders

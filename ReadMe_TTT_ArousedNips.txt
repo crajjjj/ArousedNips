@@ -31,6 +31,35 @@ Just remove the mod. NiOverride will automatically remove all the morphs.
 yeh. That's all.
 
 Changes
+2.1.0
+- Bundled 23-morph labia/vagina preset cherry-picked from the community Anon 2.0.4
+  fork. Ships as Data\SKSE\Plugins\StorageUtilData\ArousedNips\morphs.json --
+  click "Import Settings" in the MCM once after install to activate it. Default
+  on-load behaviour is unchanged (4 nipple morphs); the preset is purely
+  opt-in.
+- New MCM "Performance" slider: NPC scan radius (100-10000 units, default 1000).
+  Replaces the previously-hardcoded 1000 in the SLA-heartbeat NPC cell scan.
+- New MCM "Debug" toggles, all default on:
+    * Ignore Dead -- skips corpses (filters at both the cell scan and
+      UpdateActor for the player poll / debug spell paths). NOTE: the Anon
+      2.0.4 fork shipped this toggle but never wired it into UpdateActor;
+      ours actually works.
+    * Ignore Male Beasts -- skips creature actors with GetSex() == 2 (wolves,
+      bears, etc; NOT the playable beast races Khajiit/Argonian which are
+      GetSex() 0/1 and remain covered by Ignore Males).
+    * Ignore Female Beasts -- as above for GetSex() == 3.
+- Version int bumped from 10105 to 20100 specifically so upgrades from saves
+  with the Anon 2.0.4 fork (which persisted SKI CurrentVersion=20004) fire
+  OnVersionUpdate and clear the stale "2.0.4" MCM header string. Going from
+  1.1.5's 10105 to a 1.x.y would have looked like a downgrade to SKI and left
+  the header unrefreshed.
+- All 1.1.5 fixes carry forward: portable slaframeworkscr.GetVersion() multi-
+  fork SLA detection (NG / SLO / OSL stub / SSELoose / eXtended), portable
+  GetActorArousal() reads (fresh recalc, no faction-rank caching), player-only
+  poll for mid-scene responsiveness, MCM Import not clobbering option IDs,
+  Export not infinite-looping on empty morph slots, no Quest.OnInit -> MCM
+  re-entrance freeze, etc. See the 1.1.5 entry below for the full list.
+
 1.1.5
 - FREEZE FIX: removed the Quest.OnInit -> CONFIGMENU.ImportUserSettings()
   callback and the OnVersionUpdate -> RestartPolling() cross-script call.

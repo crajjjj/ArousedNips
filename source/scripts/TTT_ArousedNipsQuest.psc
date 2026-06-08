@@ -11,6 +11,18 @@ bool Property isSLAroused29 = false Auto Hidden
 bool Property DebugMode = false Auto Hidden
 bool Property IgnoreMales = true Auto Hidden
 
+; NPC filter toggles added in 2.1.0 (cherry-picked from the Anon 2.0.4 fork).
+; All three default to TRUE -- skipping dead actors and creatures is the
+; conservative default that matches typical user expectation (morph effect
+; on living humanoid NPCs only). Tunable in MCM.
+; Note: "Beast" here means engine-level creature actors (Skyrim's GetSex()
+; returns 2 for male creatures and 3 for female creatures), NOT the playable
+; beast races (Khajiit / Argonian / orc), which are GetSex() 0/1 and stay
+; covered by IgnoreMales.
+bool Property IgnoreDead         = true Auto Hidden
+bool Property IgnoreMaleBeast    = true Auto Hidden
+bool Property IgnoreFemaleBeast  = true Auto Hidden
+
 string[] Property MorphNames Auto Hidden
 float[] Property MaxValue Auto Hidden
 float[] Property MaxDefault Auto Hidden
@@ -27,6 +39,13 @@ float Property DefaultArea = 0.0 AutoReadOnly Hidden
 ; fall back to the heartbeat-only behaviour.
 float Property PollInterval = 5.0 Auto Hidden
 float Property DefaultPollInterval = 5.0 AutoReadOnly Hidden
+
+; NPC cell-scan radius (units) used by OnArousalComputed's
+; MiscUtil.ScanCellNPCsByFaction call. Replaces the previously-hardcoded
+; 1000 from 1.1.5 and earlier. Default 1000 preserves prior behaviour.
+; Range in MCM: 100 (very tight) to 10000 (full exterior cell).
+float Property ScanCellRadius = 1000.0 Auto Hidden
+float Property DefaultScanCellRadius = 1000.0 AutoReadOnly Hidden
 
 
 
