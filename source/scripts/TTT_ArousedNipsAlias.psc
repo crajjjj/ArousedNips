@@ -13,13 +13,60 @@ slaMainScr Property sla_Main Auto
 slaFrameworkScr Property sla_Framework Auto
 SexLabFramework Property SexLabQuestFramework Auto
 
+Event OnInit()
+	{Fires once when the alias is first filled. Warm the sla_Framework cache
+	 eagerly so the manual OnPlayerLoadGame call from Quest.OnInit (and every
+	 subsequent use) takes the fast path. Return value discarded -- side
+	 effect (Auto property population) is what we want.}
+	GetFramework()
+EndEvent
+
+slaFrameworkScr Function GetFramework()
+	{Defensive accessor for the SLA framework script. Used in three modes:
+
+	   (1) OnInit -- warm-cache the Auto property on first-fill.
+	   (2) OnPlayerLoadGame -- double-check on every load (catches SLA reinstall
+	       / formID rewire since the cosaved Auto value was last set).
+	   (3) Call sites (OnArousalComputed scan, UpdateActor arousal read,
+	       OnPlayerLoadGame version check) -- get the framework safely. Cheap
+	       when sla_Framework is already populated (one bool check + return).
+
+	 Falls back to Quest.GetQuest("sla_Framework") if the Auto property is None
+	 -- both SLA NG / SLO Aroused NG and OSL Aroused's stub ship a quest with
+	 that editor ID, per the SLA NG readme's portable detection pattern.
+
+	 On successful fallback, populates the Auto property so subsequent calls
+	 take the fast path and the resolved value persists in the cosave for the
+	 next save load.
+
+	 Why this exists: TTT_ArousedNips.esp shipped by some older forks has been
+	 observed with the sla_Framework Auto property silently unwired -- callers
+	 get None from the property even when SLA is loaded and the quest is alive
+	 in memory. The dynamic lookup ignores the ESP wiring and goes straight to
+	 the named quest.}
+	If sla_Framework
+		Return sla_Framework
+	EndIf
+	sla_Framework = Quest.GetQuest("sla_Framework") as slaFrameworkScr
+	If sla_Framework
+		debug.Trace("TTT_ArousedNips: populated sla_Framework Auto property via Quest.GetQuest fallback")
+	EndIf
+	Return sla_Framework
+EndFunction
+
 Event OnPlayerLoadGame()
-	{Checking requirements every game load.}
+	{Checking requirements every game load. Also re-runs GetFramework to
+	 catch SLA reinstall / formID rewire since the cached Auto property was set.}
+	; Double-check the framework property on every load. If the cosaved Auto
+	; property is still valid (normal case) this is a no-op; if SLA was
+	; reinstalled with different formIDs it'll re-populate via the fallback.
+	GetFramework()
+
 	if TTT_ArousedNipsMainQuest.DebugMode
 		debug.Notification("ArousedNips: checking for requirements")
 		debug.Trace("TTT_ArousedNips: checking for requirements")
 	EndIf
-		
+
 	;Check Requirements
 	if !CheckNiOverride()
 		;NiO check fail
@@ -30,7 +77,7 @@ Event OnPlayerLoadGame()
 	Else
 		TTT_ArousedNipsMainQuest.isNioOk = true
 	EndIf
-	
+
 	; Multi-fork detection via slaframeworkscr.GetVersion() (portable -- both OSL
 	; Aroused's stub framework and real SLA NG implement it). Date-stamped scheme:
 	;   OSL Aroused stub      -> 20140124   (read-only API; GetActorArousal works,
@@ -41,18 +88,22 @@ Event OnPlayerLoadGame()
 	; The official "is this real NG?" gate per SLA NG's README is >= 20200000.
 	; TTT_ArousedNips only consumes the read path (GetActorArousal) which is
 	; portable across forks, so legacy / stub installs still work for morph display.
-	if !sla_Framework
-		; sla_Framework property unwired — SexLabAroused.esm master likely missing
-		; or save data is corrupt. Without it we cannot detect the fork or read
-		; arousal, so abort with a clear notification rather than null-crash on
-		; the GetVersion() call below.
+	; Defensive accessor -- GetFramework() at the top of OnPlayerLoadGame already
+	; warmed/refreshed the cache, but going through the accessor here means a
+	; mid-session re-entry (e.g. ResetAllState -> alias.OnPlayerLoadGame from the
+	; MCM thread before OnInit's cache was committed) still resolves cleanly.
+	slaFrameworkScr framework = GetFramework()
+	if !framework
+		; Both the Auto property AND the Quest.GetQuest fallback came back None.
+		; Real-world this means SexLabAroused.esm isn't loaded at all. Without it
+		; we cannot detect the fork or read arousal -- abort.
 		TTT_ArousedNipsMainQuest.isSLAroused28 = false
 		TTT_ArousedNipsMainQuest.isSLAroused29 = false
-		debug.Notification("ArousedNips: sla_Framework property unwired, aborting")
-		debug.Trace("TTT_ArousedNips: sla_Framework property unwired, aborting")
+		debug.Notification("ArousedNips: SLA framework not found (Auto property unwired AND Quest.GetQuest fallback failed), aborting")
+		debug.Trace("TTT_ArousedNips: SLA framework not found (Auto property unwired AND Quest.GetQuest fallback failed), aborting")
 		return
 	endif
-	int slaVersion = sla_Framework.GetVersion()
+	int slaVersion = framework.GetVersion()
 
 	if slaVersion >= 20200000
 		; Real SLA NG (or compatible >= NG-class fork).
@@ -141,7 +192,25 @@ Event OnArousalComputed(string eventName, string argString, float argNum, form s
 		return
 	EndIf
 
-	Actor[] theActors = MiscUtil.ScanCellNPCsByFaction(sla_Framework.slaArousal, Game.GetPlayer(), TTT_ArousedNipsMainQuest.ScanCellRadius, 0, 127, TTT_ArousedNipsMainQuest.IgnoreDead)
+	; Defensive accessor -- normally just returns the populated Auto property.
+	; If something unusual happened (mid-session SLA reinstall, etc.) the
+	; accessor re-resolves and re-populates so we don't silently skip ticks
+	; on a cosmetic property glitch.
+	slaFrameworkScr framework = GetFramework()
+	If !framework
+		return
+	EndIf
+	; slaArousal is itself an Auto property on slaframeworkscr -- if SLA's own
+	; ESP is broken-wired the same way ours was, this comes back None and
+	; MiscUtil.ScanCellNPCsByFaction(None, ...) is unspecified. Skip the tick
+	; rather than poke PapyrusUtil with a null faction.
+	If !framework.slaArousal
+		If doDebug
+			debug.Trace("TTT_ArousedNips: framework.slaArousal is None; skipping NPC scan this tick")
+		EndIf
+		return
+	EndIf
+	Actor[] theActors = MiscUtil.ScanCellNPCsByFaction(framework.slaArousal, Game.GetPlayer(), TTT_ArousedNipsMainQuest.ScanCellRadius, 0, 127, TTT_ArousedNipsMainQuest.IgnoreDead)
 	; theActors can have null slots if SLA's faction faction-rank cache is mid-update.
 	int i = 0
 	int len = theActors.length
@@ -160,7 +229,18 @@ endEvent
 
 Function UpdateActor(Actor who, bool doDebug=false, int modifier=0)
 	{Set morphs of "who" according to their arousal, offset by "modifier".}
+	If !who
+		; Callers (OnArousalComputed, OnStageStart) guard their array entries,
+		; but the debug spell's crosshair fallback and any third-party script
+		; that ends up here can still pass None. Bail rather than null-deref.
+		return
+	EndIf
 	ActorBase whoBase = who.GetLeveledActorBase()
+	If !whoBase
+		; LeveledActorBase can return None for actors in unusual states (e.g.
+		; mid-spawn). No way to filter by sex / IsDead without it -- skip.
+		return
+	EndIf
 	; ActorBase.GetSex() encodes both gender and creature-ness:
 	;   0 = male NPC, 1 = female NPC, 2 = male creature, 3 = female creature.
 	; This lets us split the "Ignore Males" (humanoid) and "Ignore Beast"
@@ -192,7 +272,19 @@ Function UpdateActor(Actor who, bool doDebug=false, int modifier=0)
 	; GetActorArousal -> slaInternalModules.GetArousal(who), which triggers a fresh
 	; recalculation rather than returning the cached faction-rank that SLA only
 	; refreshes on its scan tick. Already clamped to [0,100] by GetActorArousal.
-	int Arousal = sla_Framework.GetActorArousal(who) + modifier
+	; Defensive accessor: GetFramework() normally just returns the cached
+	; sla_Framework Auto property (warmed in OnInit / OnPlayerLoadGame), but
+	; falls back to Quest.GetQuest if the property somehow became None at
+	; runtime. Cheap when the cache is valid -- one bool check + return.
+	slaFrameworkScr framework = GetFramework()
+	If !framework
+		If doDebug
+			debug.Notification("ArousedNips: "+whoBase.GetName()+" -- SLA framework unavailable, skipping")
+			debug.Trace("TTT_ArousedNips: "+whoBase.GetName()+" -- SLA framework unavailable, skipping")
+		EndIf
+		return
+	EndIf
+	int Arousal = framework.GetActorArousal(who) + modifier
 	If Arousal > 100
 		Arousal = 100
 	ElseIf Arousal < 0
@@ -220,17 +312,25 @@ EndFunction
 Event OnStageStart(string eventName, string argString, float argNum, form sender)
 	{Experimental.}
 	Actor[] actorList = SexLabQuestFramework.HookActors(argString)
-	
-	If (actorList.length < 1)
+	If !actorList
 		return
 	EndIf
-	
+	int len = actorList.length
+	If len < 1
+		return
+	EndIf
+
 	Utility.Wait(1)
 	;giving Aroused time to do its thing.
-	
+
+	bool doDebug = TTT_ArousedNipsMainQuest.DebugMode
 	int i = 0
-	While i < actorList.length
-		UpdateActor(actorList[i], TTT_ArousedNipsMainQuest.DebugMode, 50)
+	While i < len
+		; HookActors can hand back arrays with null slots if SexLab's hook list
+		; is mid-update; guard each entry rather than null-deref in UpdateActor.
+		If actorList[i]
+			UpdateActor(actorList[i], doDebug, 50)
+		EndIf
 		i += 1
 	EndWhile
 EndEvent

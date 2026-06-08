@@ -7,16 +7,48 @@ The morphing is proportional to the arousal of the player or NPC in question, wi
 - Inspired by some random post I saw like half a year ago -
 
 Requirements:
-SexLab Aroused (one of):
-  - SexLab Aroused Redux SSE / SSELoose v28
-  - SexLab Aroused eXtended (LE) v29
-  - SexLab Aroused NG (recommended for SE/AE; tested against the build in
-    C:\Playground\Skyrim\mods\SKSE\SexlabArousedNG)
-RaceMenu / NiOverride (SKEE) 3.4.5 or later
-BodySlide 2.8 or later (3BA/CBBE/UUNP morphs)
-SkyUI if you want to use the MCM
-BodySlide compatible Body and Armors
-Please note: The effect will only be visible if you have properly generated the Morphs in BodySlide for your current nude body or armor!
+
+Required:
+- SKSE (matching your Skyrim version: SKSE64 for SE, SKSE for AE/VR).
+- PapyrusUtil SE -- the MCM Import/Export and the bundled morph preset
+  use JsonUtil from this.
+- RaceMenu / NiOverride (SKEE). NiOverride script version 6 or later (the
+  alias verifies this at every game load and aborts if absent).
+- SexLab Aroused -- any one of the supported forks. Detected automatically
+  via slaframeworkscr.GetVersion(); the MCM Requirements row tells you
+  which path was taken. In order of recommendation:
+    * SexLab Aroused NG / SLO Aroused NG (best multi-mod compatibility,
+      modern API, full read+write arousal support)
+    * SexLab Aroused Redux SSE / SSELoose v28 (legacy SE)
+    * SexLab Aroused eXtended (LE) v29 (legacy LE)
+    * OSL Aroused stub (read-only; mod displays current arousal but can't
+      affect ramps. Same alias path as the legacy forks.)
+- BodySlide 2.8 or later, with morphs generated for your current body
+  and armours. WITHOUT this the morph values are written into NiOverride
+  but produce no visible change in-game.
+- A BodySlide-compatible body. 3BA / CBBE 3BA recommended (ships the
+  4 default nipple morphs: NippleSize, NippleLength, NipplePerkiness,
+  AreolaSize). UUNP also works for the 4 nipple defaults.
+
+Strongly recommended:
+- SkyUI 5.1 or later -- the mod runs without it but you can't configure
+  anything (slider tuning, preset import, requirements check display,
+  recovery reset all require the MCM).
+
+Optional -- only if importing the bundled 23-morph preset (Recovery >
+Import Settings in MCM):
+- A body / morph pack that defines the labia / vagina / clit slider names
+  referenced by the preset (innieoutie, labianeat_v2, labiatightup,
+  labiapuffyness, labiamorepuffyness_v2, labiaprotrude / 2 / back,
+  labiaspread, labiacrumpled_v2, labiabulgogi_v2, vaginasize, vaginahole,
+  clit, clitswell_v2, cutepuffyness, cbpc, nippleperkmanga, nippletube_v2).
+  3BA Genital Morphs (or an equivalent labia/vagina morph add-on) covers
+  these. The preset will Import cleanly even without these morph names
+  defined on the body -- the extra sliders just become silent no-ops
+  in-game.
+
+Please note: The effect will only be visible if you have properly generated
+the Morphs in BodySlide for your current nude body or armour!
 
 The strength of the morphs can be adjusted individually in an MCM, at a step rate of 0.01, so you'll be able to make exactly the nips you want. I recommend using the Racemenu sliders for preview purposes.
 
@@ -31,7 +63,30 @@ Just remove the mod. NiOverride will automatically remove all the morphs.
 yeh. That's all.
 
 Changes
-2.1.0
+2.1.1 (by crajjjj)
+- New MCM "Recovery > Reset all state" button. Wipes the persisted morph
+  table back to 4 nipple defaults, resets every toggle / slider to its on-
+  install value, and re-runs the requirements check against the live SLA
+  framework. Use this if upgrading from a different fork (Anon 2.0.4 etc)
+  leaves you with mismatched arrays -- symptoms include all MCM sliders
+  stuck at 0.00, "SLAroused (Required): Try Load Save" with SLA actually
+  installed, or persistent "Cannot access an element of a None array"
+  errors in Papyrus.0.log from OnPageReset. After clicking Reset, click
+  Import Settings to re-apply the bundled 23-morph preset (or any config
+  you previously exported).
+- SLA framework resolution now falls back to Quest.GetQuest("sla_Framework")
+  if the ESP-wired sla_Framework Auto property is None. Older forks of
+  TTT_ArousedNips.esp have been observed shipping with the property silently
+  unwired -- callers got None from the property even when SLA was loaded and
+  the quest was alive in memory. This was the actual root cause of "SLAroused
+  (Required): Try Load Save" persisting across save+reload on otherwise-
+  healthy SLA NG installs. The fallback follows the SLA NG readme's official
+  multi-fork detection pattern (both SLA NG / SLO and OSL Aroused's stub
+  ship a quest with editor ID "sla_Framework"). A diagnostic trace
+  ("sla_Framework Auto property is None; resolved via Quest.GetQuest
+  fallback") fires on every game load when the fallback kicks in.
+
+2.1.0 (by crajjjj)
 - Bundled 23-morph labia/vagina preset cherry-picked from the community Anon 2.0.4
   fork. Ships as Data\SKSE\Plugins\StorageUtilData\ArousedNips\morphs.json --
   click "Import Settings" in the MCM once after install to activate it. Default
@@ -60,7 +115,7 @@ Changes
   Export not infinite-looping on empty morph slots, no Quest.OnInit -> MCM
   re-entrance freeze, etc. See the 1.1.5 entry below for the full list.
 
-1.1.5
+1.1.5 (by crajjjj)
 - FREEZE FIX: removed the Quest.OnInit -> CONFIGMENU.ImportUserSettings()
   callback and the OnVersionUpdate -> RestartPolling() cross-script call.
   Both could fire while SkyUI was mid-registering the MCM, and the resulting

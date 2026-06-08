@@ -35,12 +35,15 @@ import MiscUtil
 int function GetVersion()
 	;format = (M)MmmPP
 	;12345 => 1.23.45
-	; 20100 = 2.01.00. Skips ahead of the Anon 2.0.4 fork (20004) so SkyUI's
-	; OnVersionUpdate gate (CurrentVersion < GetVersion) fires when upgrading
-	; from a save that previously had 2.0.4 installed -- clears the stale
-	; "2.0.4" MCM header string and triggers the fork-to-1.1.5-based-2.1.0
-	; transition path.
-	return 20100
+	; 20101 = 2.01.01. The 2.01.00 baseline was chosen to skip ahead of the
+	; Anon 2.0.4 fork (20004) so SkyUI's OnVersionUpdate gate
+	; (CurrentVersion < GetVersion) fires when upgrading from a save that
+	; previously had 2.0.4 installed -- clears the stale "2.0.4" MCM header
+	; string and triggers the fork-to-1.1.5-based transition path.
+	; 2.01.01 adds the MCM Recovery > Reset button and the SLA framework
+	; Quest.GetQuest fallback (handles ESPs where the sla_Framework Auto
+	; property is unwired).
+	return 20101
 endFunction
 
 Event OnVersionUpdate(Int ver)
@@ -160,6 +163,11 @@ event OnPageReset(string page)
 		AddHeaderOption("IMPORT - EXPORT")
 		AddTextOptionST("State_Page_01","Import Settings","Import", a_flags)
 		AddTextOptionST("State_Page_02","Export Settings","Export", a_flags)
+
+		AddHeaderOption("Recovery")
+		; Reset stays enabled even when NiOverride is missing -- the whole point
+		; of this button is to recover from a state where things aren't right.
+		AddTextOptionST("State_Reset","Reset all state","Reset", 0)
 	Endif
 endEvent
 
@@ -181,6 +189,20 @@ state State_Page_02
 	event OnSelectST()
 		ExportUserSettings()
 		SetTextOptionValueST("Loading...")
+		ForcePageReset()
+	endevent
+endstate
+
+state State_Reset
+	event OnHighlightST()
+		SetInfoText("Wipe everything back to install defaults: 4 nipple morphs, all toggles to their on-install state, scan radius 1000, poll 5s. Re-runs the SLA / NiOverride requirements check. Use this to recover from broken save state (sliders all 0.00, SLA requirement stuck on \"Try Load Save\", upgrade from a different fork). Your tuning will be lost -- after reset you can click Import Settings to re-load the bundled preset or a previously-exported config.")
+	endevent
+	event OnSelectST()
+		; Reset the MCM-side morph count too -- it's persisted separately from the
+		; quest's MorphNames array and the quest reset doesn't see it.
+		TTT_AN_Morphs = 4
+		TTT_ArousedNipsMainQuest.ResetAllState()
+		SetTextOptionValueST("Done")
 		ForcePageReset()
 	endevent
 endstate

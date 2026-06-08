@@ -56,7 +56,29 @@ Event OnInit()
 	Debug.Notification("ArousedNips: first time initialization")
 	Debug.Trace("TTT_ArousedNips: first time initialization")
 
+	; OnInit and the MCM "Reset all state" button share the same reset path.
+	; DELIBERATELY do NOT call CONFIGMENU.ImportUserSettings() from this chain.
+	; OnInit can fire during MCM registration (OnConfigRegister -> Quest.Start()),
+	; and calling back into CONFIGMENU while SkyUI is still mid-registering creates
+	; cross-script lock contention that wedges the Papyrus VM hard enough to
+	; freeze the game (reproduced after the 1.1.5 bump). The user can click
+	; "Import Settings" from the MCM at any time afterwards to load a saved
+	; preset (e.g. the bundled 23-morph labia/vagina one).
+	ResetAllState()
 
+	Debug.Notification("ArousedNips: initialization complete")
+	debug.Trace("TTT_ArousedNips: initialization complete")
+EndEvent
+
+Function ResetAllState()
+	{Wipe persisted state back to install defaults. Called from OnInit on first install
+	 AND from the MCM "Reset all state" button to recover from corrupt / upgrade-stale state
+	 (None arrays, mismatched morph counts, flags stuck false, etc).
+
+	 This explicitly overwrites toggles to their declared defaults too, since those
+	 persist in the cosave and a fresh-install user can have arbitrary saved values
+	 from a previous fork. Re-runs the alias requirements check at the end so the
+	 SLA flags refresh against the live SLA framework.}
 	MaxValue = new float[128]
 	MaxValue[0] = DefaultSize
 	MaxValue[1] = DefaultLength
@@ -71,28 +93,28 @@ Event OnInit()
 	MorphNames[2] = "NipplePerkiness"
 	MorphNames[3] = "AreolaSize"
 
-	; DELIBERATELY do NOT call CONFIGMENU.ImportUserSettings() here.
-	; This OnInit can fire during MCM registration (OnConfigRegister -> Quest.Start()),
-	; and calling back into CONFIGMENU while SkyUI is still mid-registering creates a
-	; cross-script lock contention that wedges the Papyrus VM hard enough to
-	; freeze the game (reproduced after the 1.1.5 bump). The user can click
-	; "Import Settings" from the MCM at any time to restore previously-exported
-	; JSON config -- and the quest's MorphNames / MaxValue / DebugMode / IgnoreMales
-	; properties persist in the cosave anyway, so on a normal upgrade nothing is lost.
+	; Toggles + sliders back to their declared defaults.
+	DebugMode         = false
+	IgnoreMales       = true
+	IgnoreDead        = true
+	IgnoreMaleBeast   = true
+	IgnoreFemaleBeast = true
+	PollInterval      = DefaultPollInterval
+	ScanCellRadius    = DefaultScanCellRadius
 
+	; Re-run requirements check so isNioOk / isSLAroused28 / isSLAroused29 reflect
+	; the live framework state (and on first install, register the mod events + poll).
 	TTT_ArousedNipsPlayerAlias.OnPlayerLoadGame()
-
-	Debug.Notification("ArousedNips: initialization complete")
-	debug.Trace("TTT_ArousedNips: initialization complete")
-EndEvent
+EndFunction
 
 Function ResetDefaults()
-	{Keeps defaults up-to-date}
-	
+	{Keeps the MaxDefault array up-to-date. Called from OnPlayerLoadGame on every load
+	 and from ResetAllState.}
+
 	MaxDefault = new float[128]
 	MaxDefault[0] = DefaultSize
 	MaxDefault[1] = DefaultLength
 	MaxDefault[2] = DefaultCone
 	MaxDefault[3] = DefaultArea
-	
+
 EndFunction
