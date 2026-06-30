@@ -23,6 +23,21 @@ bool Property IgnoreDead         = true Auto Hidden
 bool Property IgnoreMaleBeast    = true Auto Hidden
 bool Property IgnoreFemaleBeast  = true Auto Hidden
 
+; When true, arousal morphs are scaled down (by UnderArmorScale) on any actor
+; whose chest is covered, so fitted nipples don't clip through the top. "Covered"
+; = wearing a cuirass / body-clothing (vanilla keyword check), unless Advanced
+; Nudity Detection is installed and flags the actor Topless/Nude (override for
+; skimpy / bikini tops). See IsTopCovered in TTT_ArousedNipsAlias.
+; The player alias refreshes instantly on equip/unequip via OnObjectEquipped /
+; OnObjectUnequipped; NPCs collapse on the next heartbeat/poll. Default ON.
+bool Property SuppressUnderArmor = true Auto Hidden
+
+; Multiplier (0.0 .. 1.0) applied to every arousal morph while the chest is
+; covered (and SuppressUnderArmor is on). 0.0 = nipples fully flat under armor
+; (no clipping); 1.0 = no reduction. MCM-tunable. Default 0.0.
+float Property UnderArmorScale = 0.0 Auto Hidden
+float Property DefaultUnderArmorScale = 0.0 AutoReadOnly Hidden
+
 string[] Property MorphNames Auto Hidden
 float[] Property MaxValue Auto Hidden
 float[] Property MaxDefault Auto Hidden
@@ -110,6 +125,8 @@ Function ResetAllState()
 	PollInterval      = DefaultPollInterval
 	ScanCellRadius    = DefaultScanCellRadius
 	IntensityPreset   = ""
+	SuppressUnderArmor = true
+	UnderArmorScale   = DefaultUnderArmorScale
 
 	; Re-run requirements check so isNioOk / isSLAroused28 / isSLAroused29 reflect
 	; the live framework state (and on first install, register the mod events + poll).

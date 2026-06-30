@@ -17,6 +17,8 @@ int oidScanCellRadius
 int oidIgnoreDead
 int oidIgnoreMaleBeast
 int oidIgnoreFemaleBeast
+int oidSuppressUnderArmor
+int oidUnderArmorScale
 
 ; Combobox options for the intensity preset. Hardcoded in fixed order so the
 ; dropdown shows "Minimal" -> "Exaggerated" rather than alphabetical.
@@ -52,7 +54,11 @@ int function GetVersion()
 	; 2.01.02 adds the Intensity preset combobox (Minimal / Natural /
 	; Noticeable / Exaggerated, backed by JSON files under
 	; SKSE\Plugins\StorageUtilData\ArousedNips\IntensityPresets\).
-	return 20102
+	; 2.01.03 adds the under-armor suppression feature (Suppress morphs under
+	; armor toggle + Nipple size under armor slider, -1..1; Advanced Nudity
+	; Detection-aware top-nudity gating in the alias, vanilla cuirass/clothing
+	; worn-keyword fallback without AND).
+	return 20103
 endFunction
 
 Event OnVersionUpdate(Int ver)
@@ -175,6 +181,15 @@ event OnPageReset(string page)
 		EndIf
 		AddMenuOptionST("State_IntensityPreset", "Preset", presetLabel, hasReqFlag)
 
+		AddHeaderOption("Under armor")
+		oidSuppressUnderArmor = AddToggleOption("Suppress morphs under armor", TTT_ArousedNipsMainQuest.SuppressUnderArmor)
+		; Slider stays visible but disabled while suppression is off, so its role is clear.
+		int uaFlag = hasReqFlag
+		if !TTT_ArousedNipsMainQuest.SuppressUnderArmor
+			uaFlag = OPTION_FLAG_DISABLED
+		endif
+		oidUnderArmorScale   = AddSliderOption("Nipple size under armor", TTT_ArousedNipsMainQuest.UnderArmorScale, "{2}", uaFlag)
+
 		AddHeaderOption("Debug")
 		oidIgnoreMales       = AddToggleOption("Ignore Males",          TTT_ArousedNipsMainQuest.IgnoreMales)
 		oidIgnoreDead        = AddToggleOption("Ignore Dead",           TTT_ArousedNipsMainQuest.IgnoreDead)
@@ -284,6 +299,12 @@ event OnOptionSelect(int option)
 		TTT_ArousedNipsMainQuest.IgnoreFemaleBeast = !TTT_ArousedNipsMainQuest.IgnoreFemaleBeast
 		SetToggleOptionValue(option,TTT_ArousedNipsMainQuest.IgnoreFemaleBeast)
 		return
+	elseif option == oidSuppressUnderArmor
+		TTT_ArousedNipsMainQuest.SuppressUnderArmor = !TTT_ArousedNipsMainQuest.SuppressUnderArmor
+		SetToggleOptionValue(option,TTT_ArousedNipsMainQuest.SuppressUnderArmor)
+		; Redraw so the "Nipple size under armor" slider enables/disables to match.
+		ForcePageReset()
+		return
 	endif
 endEvent
 
@@ -319,6 +340,15 @@ event OnOptionDefault(int option)
 		TTT_ArousedNipsMainQuest.ScanCellRadius = TTT_ArousedNipsMainQuest.DefaultScanCellRadius
 		SetSliderOptionValue(option, TTT_ArousedNipsMainQuest.ScanCellRadius, "{0}")
 		return
+	Elseif option == oidSuppressUnderArmor
+		TTT_ArousedNipsMainQuest.SuppressUnderArmor = true
+		SetToggleOptionValue(option,true)
+		ForcePageReset()
+		return
+	Elseif option == oidUnderArmorScale
+		TTT_ArousedNipsMainQuest.UnderArmorScale = TTT_ArousedNipsMainQuest.DefaultUnderArmorScale
+		SetSliderOptionValue(option, TTT_ArousedNipsMainQuest.UnderArmorScale, "{2}")
+		return
 	Else
 		int i = 0
 		while i < 4
@@ -344,6 +374,15 @@ Event OnOptionSliderOpen(Int option)
 		SetSliderDialogInterval(100.0)
 		SetSliderDialogStartValue(TTT_ArousedNipsMainQuest.ScanCellRadius)
 		SetSliderDialogDefaultValue(TTT_ArousedNipsMainQuest.DefaultScanCellRadius)
+		return
+	ElseIf option == oidUnderArmorScale
+		; Allow negatives: NippleSize is an inverted morph, so a negative scale
+		; pushes the nipples smaller than baseline (an active tuck under armor),
+		; not just toward neutral.
+		SetSliderDialogRange(-1.0, 1.0)
+		SetSliderDialogInterval(0.05)
+		SetSliderDialogStartValue(TTT_ArousedNipsMainQuest.UnderArmorScale)
+		SetSliderDialogDefaultValue(TTT_ArousedNipsMainQuest.DefaultUnderArmorScale)
 		return
 	EndIf
 
@@ -372,6 +411,10 @@ Event OnOptionSliderAccept(Int option, Float value)
 	ElseIf option == oidScanCellRadius
 		TTT_ArousedNipsMainQuest.ScanCellRadius = value
 		SetSliderOptionValue(option, TTT_ArousedNipsMainQuest.ScanCellRadius, "{0}")
+		return
+	ElseIf option == oidUnderArmorScale
+		TTT_ArousedNipsMainQuest.UnderArmorScale = value
+		SetSliderOptionValue(option, TTT_ArousedNipsMainQuest.UnderArmorScale, "{2}")
 		return
 	EndIf
 
@@ -402,6 +445,10 @@ Event OnOptionHighlight(Int option)
 		SetInfoText("Seconds between player-only arousal refreshes. SLA NG only broadcasts every 120s by default, so polling keeps morphs responsive mid-scene. Set to 0 to disable polling (NPC morphs still update on SLA's scan tick).")
 	ElseIf option == oidScanCellRadius
 		SetInfoText("Radius (game units) the SLA heartbeat scans for aroused NPCs. Default 1000 ~= one room. Larger values catch more actors but cost more per heartbeat tick.")
+	ElseIf option == oidSuppressUnderArmor
+		SetInfoText("If on, arousal morphs are scaled down while the chest is covered, so nipples don't clip through tops. If Advanced Nudity Detection is installed, its Topless/Nude state decides 'covered' (bikinis/skimpy tops handled correctly); otherwise any worn cuirass/body clothing counts. On by default.")
+	ElseIf option == oidUnderArmorScale
+		SetInfoText("How much of the arousal morph remains while the chest is covered. 0.00 = nipples flat under armor (no clipping); 1.00 = no reduction. Negative values invert the morph -- because NippleSize is inverted, a negative scale pushes the nipples smaller than baseline (an active tuck for tight tops). Only applies when 'Suppress morphs under armor' is on.")
 	Else
 		int i = 0
 		while i < 4
@@ -430,6 +477,10 @@ Bool Function ImportUserSettings()
 	TTT_ArousedNipsMainQuest.IgnoreMaleBeast   = (GetStringValue(TTT_AN_Config_file, "ignoremalebeast",   "1") as int) as bool
 	TTT_ArousedNipsMainQuest.IgnoreFemaleBeast = (GetStringValue(TTT_AN_Config_file, "ignorefemalebeast", "1") as int) as bool
 	TTT_ArousedNipsMainQuest.ScanCellRadius    = GetStringValue(TTT_AN_Config_file, "scancellradius", "1000") as float
+	; Under-armor suppression (added later) -- defaults match the quest's declared
+	; property defaults so pre-existing config.json files hydrate cleanly.
+	TTT_ArousedNipsMainQuest.SuppressUnderArmor = (GetStringValue(TTT_AN_Config_file, "suppressunderarmor", "1") as int) as bool
+	TTT_ArousedNipsMainQuest.UnderArmorScale    = GetStringValue(TTT_AN_Config_file, "underarmorscale", "0") as float
 	UnLoad(TTT_AN_Config_file, false, false)
 
 	; Sliders
@@ -523,6 +574,8 @@ Bool Function ExportUserSettings()
 	SetStringValue(TTT_AN_Config_file, "ignoremalebeast",   (TTT_ArousedNipsMainQuest.IgnoreMaleBeast   as int) as string)
 	SetStringValue(TTT_AN_Config_file, "ignorefemalebeast", (TTT_ArousedNipsMainQuest.IgnoreFemaleBeast as int) as string)
 	SetStringValue(TTT_AN_Config_file, "scancellradius",     TTT_ArousedNipsMainQuest.ScanCellRadius              as string)
+	SetStringValue(TTT_AN_Config_file, "suppressunderarmor", (TTT_ArousedNipsMainQuest.SuppressUnderArmor as int) as string)
+	SetStringValue(TTT_AN_Config_file, "underarmorscale",     TTT_ArousedNipsMainQuest.UnderArmorScale            as string)
 	; Clear any previously-exported list so we don't accumulate duplicates across exports.
 	StringListClear(TTT_AN_Morph_file, "morphs")
 	; Sliders

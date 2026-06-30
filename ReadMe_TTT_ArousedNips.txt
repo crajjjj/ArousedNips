@@ -47,6 +47,13 @@ Import Settings in MCM):
   defined on the body -- the extra sliders just become silent no-ops
   in-game.
 
+Optional -- improves the "under armor" suppression:
+- Advanced Nudity Detection (AND). If present, the under-armor feature uses
+  AND's Topless / Nude state to decide whether the chest is covered, so
+  bikinis / bras / skimpy tops are handled correctly. Without AND the mod
+  falls back to a vanilla cuirass / body-clothing keyword check, which is
+  fine for normal armors but can't tell a revealing top from a full one.
+
 Please note: The effect will only be visible if you have properly generated
 the Morphs in BodySlide for your current nude body or armour!
 
@@ -63,6 +70,28 @@ Just remove the mod. NiOverride will automatically remove all the morphs.
 yeh. That's all.
 
 Changes
+2.1.3 (by crajjjj)
+- Under-armor suppression. Nipple/areola morphs now scale down while the
+  chest is covered, so fitted nipples no longer clip through tops. New MCM
+  "Under armor" section:
+    * "Suppress morphs under armor" toggle (on by default).
+    * "Nipple size under armor" slider (-1.00 .. 1.00) -- how much of the
+      arousal morph remains while covered. 0.00 = flat (no clipping),
+      1.00 = no reduction. Negative values invert the morph: since
+      NippleSize is an inverted slider, a negative scale tucks the nipples
+      smaller than baseline for very tight tops.
+  "Covered" is judged smartly: if Advanced Nudity Detection (AND) is
+  installed, its Topless / Nude faction state decides it -- so bikinis,
+  bras and skimpy tops that AND still scores as covered keep the morphs
+  reduced, and only a genuinely bare chest shows them. Without AND it falls
+  back to the same vanilla cuirass / body-clothing check SexLab Aroused
+  itself uses (correctly ignoring naked-body armors / SOS). The player
+  refreshes the instant you equip/unequip; NPCs collapse on the next scan.
+- Fixed the bundled morph preset filename: it shipped as "morphs.json"
+  (plural, a leftover from the Anon 2.0.4 fork) but Import Settings reads
+  "morph.json". Renamed so Recovery > Import Settings actually loads the
+  23-morph labia/vagina preset again.
+
 2.1.2 (by crajjjj)
 - New MCM "Intensity preset" combobox under the Performance header. Four
   fixed presets (Minimal / Natural / Noticeable / Exaggerated) overwrite

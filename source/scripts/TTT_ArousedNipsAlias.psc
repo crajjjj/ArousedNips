@@ -13,6 +13,19 @@ slaMainScr Property sla_Main Auto
 slaFrameworkScr Property sla_Framework Auto
 SexLabFramework Property SexLabQuestFramework Auto
 
+; --- Top-nudity / armor-suppression state ---
+; Resolved fresh on every load by ResolveNudityDetection(). IsTopCovered uses the
+; vanilla ArmorCuirass / ClothingBody worn-keyword check as primary; when Advanced
+; Nudity Detection ("Advanced Nudity Detection.esp") is present its Topless/Nude
+; faction ranks (the same formIDs SLA NG resolves -- see slamainscr.psc) only
+; OVERRIDE a covered result to bare, so skimpy / bikini tops are judged correctly
+; without breaking on actors AND hasn't scanned. See IsActorNaked in slamainscr.psc.
+Bool AND_Resolved = false
+Faction AND_Nude
+Faction AND_Topless
+Keyword kwArmorCuirass
+Keyword kwClothingBody
+
 Event OnInit()
 	{Fires once when the alias is first filled. Warm the sla_Framework cache
 	 eagerly so the manual OnPlayerLoadGame call from Quest.OnInit (and every
@@ -125,6 +138,10 @@ Event OnPlayerLoadGame()
 	;success
 	TTT_ArousedNipsMainQuest.ResetDefaults()
 
+	; Resolve AND factions + vanilla body keywords for the under-armor suppression.
+	; Re-run every load so an AND install/uninstall since the last save is picked up.
+	ResolveNudityDetection()
+
 	RegisterForModevent("sla_UpdateComplete", "OnArousalComputed")
 
 	RegisterForModEvent("StageStart", "OnStageStart")
@@ -172,6 +189,94 @@ EndFunction
 
 Bool Function CheckNiOverride()
 	Return SKSE.GetPluginVersion("skee") >= SKEE_VERSION && NiOverride.GetScriptVersion() >= NIOVERRIDE_SCRIPT_VERSION
+EndFunction
+
+Function ResolveNudityDetection()
+	{Resolve the Advanced Nudity Detection factions (top-nudity integration) and
+	 the vanilla body keywords (no-AND fallback). Called from OnPlayerLoadGame on
+	 every load so an AND install/uninstall since the last save is reflected.
+
+	 The AND formIDs (0x831 Nude, 0x832 Topless) and ESP name match what SLA NG
+	 itself resolves in slamainscr.psc -- AND owns these factions, not SLA, so we
+	 can read them directly regardless of which SLA fork is installed.}
+	AND_Resolved = false
+	AND_Nude = None
+	AND_Topless = None
+	If Game.GetModByName("Advanced Nudity Detection.esp") != 255
+		AND_Nude    = Game.GetFormFromFile(0x831, "Advanced Nudity Detection.esp") as Faction
+		AND_Topless = Game.GetFormFromFile(0x832, "Advanced Nudity Detection.esp") as Faction
+		AND_Resolved = (AND_Nude != None) || (AND_Topless != None)
+		If TTT_ArousedNipsMainQuest.DebugMode
+			debug.Trace("TTT_ArousedNips: Advanced Nudity Detection found, top-nudity gating enabled")
+		EndIf
+	EndIf
+	kwArmorCuirass = Keyword.GetKeyword("ArmorCuirass")
+	kwClothingBody = Keyword.GetKeyword("ClothingBody")
+EndFunction
+
+Bool Function IsTopCovered(Actor who)
+	{True when the actor's chest is covered, so nipple/areola morphs should be
+	 scaled down (prevents clipping through tops).
+
+	 Mirrors SexLab Aroused's own naked test (slamainscr.IsActorNaked): the vanilla
+	 ArmorCuirass / ClothingBody worn-keyword check is primary, and Advanced Nudity
+	 Detection only OVERRIDES a "covered" result to bare. We deliberately do NOT make
+	 AND the sole authority: AND's NPC factions are only populated by its periodic,
+	 player-cast NPCScanSpell (MCM-gated via ScanNPC), so an unscanned / out-of-range
+	 / just-stripped NPC has no Topless rank yet -- trusting AND alone would suppress
+	 morphs on a genuinely naked NPC (e.g. mid-scene). The keyword check is per-actor
+	 and immediate, so bare actors always show regardless of AND's scan coverage.
+
+	 Reading the faction rank is cheap (a rank lookup); we never call SLA's expensive
+	 IsActorNaked(). Naked-body armors / SOS carry neither keyword, so they read bare.}
+	; No top worn at all -> bare chest. True for every actor with no dependency on
+	; AND having scanned them.
+	If !(who.WornHasKeyword(kwArmorCuirass) || who.WornHasKeyword(kwClothingBody))
+		Return false
+	EndIf
+	; A top is worn. Let AND override to "bare" for skimpy / bikini / transparent
+	; tops that still carry a cuirass keyword but expose the chest.
+	If AND_Resolved
+		If (AND_Nude && who.GetFactionRank(AND_Nude) == 1) || (AND_Topless && who.GetFactionRank(AND_Topless) == 1)
+			Return false
+		EndIf
+	EndIf
+	Return true
+EndFunction
+
+Event OnObjectEquipped(Form akBaseObject, ObjectReference akReference)
+	{Player put something on -- refresh immediately so the chest morphs collapse
+	 without waiting for the next poll tick.}
+	RefreshOnArmorChange(akBaseObject)
+EndEvent
+
+Event OnObjectUnequipped(Form akBaseObject, ObjectReference akReference)
+	{Player took something off -- refresh so the morphs come back immediately.}
+	RefreshOnArmorChange(akBaseObject)
+EndEvent
+
+Function RefreshOnArmorChange(Form akBaseObject)
+	{Player-only immediate morph refresh when armor is equipped/unequipped. Gated
+	 on the same requirements as the poll loop so we never poke NiOverride when the
+	 mod is non-functional. With AND, a top change can come from many slots, so we
+	 refresh on any worn armor (after a short settle so AND updates its factions
+	 first); without AND only body-slot (32) armor can change the covered state.}
+	If !TTT_ArousedNipsMainQuest.SuppressUnderArmor
+		return
+	EndIf
+	If !(TTT_ArousedNipsMainQuest.isNioOk && (TTT_ArousedNipsMainQuest.isSLAroused28 || TTT_ArousedNipsMainQuest.isSLAroused29))
+		return
+	EndIf
+	Armor armo = akBaseObject as Armor
+	If !armo
+		return
+	EndIf
+	If AND_Resolved
+		Utility.Wait(0.3)
+		UpdateActor(Game.GetPlayer(), TTT_ArousedNipsMainQuest.DebugMode)
+	ElseIf Math.LogicalAnd(armo.GetSlotMask(), 0x04)
+		UpdateActor(Game.GetPlayer(), TTT_ArousedNipsMainQuest.DebugMode)
+	EndIf
 EndFunction
 
 Event OnArousalComputed(string eventName, string argString, float argNum, form sender)
@@ -291,6 +396,19 @@ Function UpdateActor(Actor who, bool doDebug=false, int modifier=0)
 		Arousal = 0
 	EndIf
 
+	; Under-armor suppression. When the chest is covered, scale every morph by
+	; UnderArmorScale (0.0 = flat, no clip; 1.0 = full) so fitted nipples don't
+	; poke through tops. IsTopCovered prefers Advanced Nudity Detection's
+	; Topless/Nude state, falling back to the vanilla worn-keyword check.
+	Float armorScale = 1.0
+	If TTT_ArousedNipsMainQuest.SuppressUnderArmor && IsTopCovered(who)
+		armorScale = TTT_ArousedNipsMainQuest.UnderArmorScale
+		If doDebug
+			debug.Notification("ArousedNips: "+whoBase.GetName()+" chest covered, scaling morphs x"+armorScale)
+			debug.Trace("TTT_ArousedNips: "+whoBase.GetName()+" chest covered, scaling morphs x"+armorScale)
+		EndIf
+	EndIf
+
 	; Iterate the morph table until we hit the first empty slot. Honours imported
 	; counts up to 128 (the array size set by OnInit / ImportUserSettings).
 	; Papyrus && short-circuits, so MorphNames[j] is not read once j hits 128.
@@ -298,7 +416,7 @@ Function UpdateActor(Actor who, bool doDebug=false, int modifier=0)
 	Float[]  maxValues  = TTT_ArousedNipsMainQuest.MaxValue
 	int j = 0
 	while j < 128 && morphNames[j] != ""
-		float Value = maxValues[j] * Arousal / 100
+		float Value = maxValues[j] * Arousal / 100 * armorScale
 		NiOverride.SetBodyMorph(who, morphNames[j], NIO_KEY, Value)
 		If doDebug
 			debug.Notification("ArousedNips: setting "+morphNames[j]+" to "+Value)
