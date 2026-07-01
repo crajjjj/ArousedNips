@@ -102,19 +102,9 @@ Function ResetAllState()
 	 persist in the cosave and a fresh-install user can have arbitrary saved values
 	 from a previous fork. Re-runs the alias requirements check at the end so the
 	 SLA flags refresh against the live SLA framework.}
-	MaxValue = new float[128]
-	MaxValue[0] = DefaultSize
-	MaxValue[1] = DefaultLength
-	MaxValue[2] = DefaultCone
-	MaxValue[3] = DefaultArea
-
-	ResetDefaults()
-
-	MorphNames = new String[128]
-	MorphNames[0] = "NippleSize"
-	MorphNames[1] = "NippleLength"
-	MorphNames[2] = "NipplePerkiness"
-	MorphNames[3] = "AreolaSize"
+	; Build the morph table: 4 nipple morphs + the extended genital/labia set.
+	; Sets MorphNames, MaxValue, MaxDefault.
+	ApplyMorphSet()
 
 	; Toggles + sliders back to their declared defaults.
 	DebugMode         = false
@@ -134,13 +124,150 @@ Function ResetAllState()
 EndFunction
 
 Function ResetDefaults()
-	{Keeps the MaxDefault array up-to-date. Called from OnPlayerLoadGame on every load
-	 and from ResetAllState.}
-
+	{Rebuild the MaxDefault array to match the current MorphNames set. Called from
+	 OnPlayerLoadGame on every load and from ApplyMorphSet. Derives every entry from
+	 DefaultForMorph so it stays correct whether the table holds 4, 23, or an
+	 imported custom set (unknown morphs default to 0).}
 	MaxDefault = new float[128]
-	MaxDefault[0] = DefaultSize
-	MaxDefault[1] = DefaultLength
-	MaxDefault[2] = DefaultCone
-	MaxDefault[3] = DefaultArea
+	Int i = 0
+	While i < 128 && MorphNames[i] != ""
+		MaxDefault[i] = DefaultForMorph(MorphNames[i])
+		i += 1
+	EndWhile
+EndFunction
 
+String[] Function FullMorphSet()
+	{Ordered full morph-name list (4 nipple morphs first, then genital / labia /
+	 extra). Single source used by both ApplyMorphSet (install/Reset) and
+	 EnsureFullMorphSet (non-destructive upgrade) so the two never drift.}
+	String[] names = new String[23]
+	names[0]  = "NippleSize"
+	names[1]  = "NippleLength"
+	names[2]  = "NipplePerkiness"
+	names[3]  = "AreolaSize"
+	names[4]  = "nippleperkmanga"
+	names[5]  = "nippletube_v2"
+	names[6]  = "innieoutie"
+	names[7]  = "labianeat_v2"
+	names[8]  = "labiatightup"
+	names[9]  = "labiapuffyness"
+	names[10] = "labiamorepuffyness_v2"
+	names[11] = "labiaprotrude"
+	names[12] = "labiaprotrude2"
+	names[13] = "labiaprotrudeback"
+	names[14] = "labiaspread"
+	names[15] = "labiacrumpled_v2"
+	names[16] = "labiabulgogi_v2"
+	names[17] = "vaginasize"
+	names[18] = "vaginahole"
+	names[19] = "clit"
+	names[20] = "clitswell_v2"
+	names[21] = "cutepuffyness"
+	names[22] = "cbpc"
+	Return names
+EndFunction
+
+Function ApplyMorphSet()
+	{(Re)build MorphNames + MaxValue (and MaxDefault via ResetDefaults) to the full
+	 morph set. Every value is reset to its DefaultForMorph default, so this is a full
+	 reset -- only for install / Reset. It does NOT preserve prior slider tuning; use
+	 EnsureFullMorphSet for a non-destructive upgrade. These sliders show in the MCM by
+	 default -- no Import needed. Morphs the body doesn't define are no-ops.}
+	MorphNames = new String[128]
+	MaxValue   = new float[128]
+
+	String[] full = FullMorphSet()
+	Int i = 0
+	While i < full.Length
+		MorphNames[i] = full[i]
+		MaxValue[i]   = DefaultForMorph(full[i])
+		i += 1
+	EndWhile
+
+	ResetDefaults()
+EndFunction
+
+Function EnsureFullMorphSet()
+	{Non-destructive upgrade: append any full-set morph not already in the table,
+	 PRESERVING existing names and their tuned MaxValue. New morphs get their
+	 DefaultForMorph default. Used by the MCM upgrade heal so an old 4-morph save
+	 gains the genital/labia sliders without wiping the nipple tuning.}
+	String[] full = FullMorphSet()
+	Int count = MorphCount()
+	Int i = 0
+	While i < full.Length
+		count = AddMorphIfMissing(full[i], count)
+		i += 1
+	EndWhile
+	ResetDefaults()
+EndFunction
+
+Int Function AddMorphIfMissing(String morphName, Int count)
+	{Append morphName at slot `count` if it's not already present, returning the new
+	 count. Existing entries (and their MaxValue tuning) are untouched. Bounded to the
+	 128 array cap. String == is case-sensitive, so names must match exactly.}
+	If count >= 128
+		Return count
+	EndIf
+	Int i = 0
+	While i < count
+		If MorphNames[i] == morphName
+			Return count
+		EndIf
+		i += 1
+	EndWhile
+	MorphNames[count] = morphName
+	MaxValue[count]   = DefaultForMorph(morphName)
+	Return count + 1
+EndFunction
+
+Float Function DefaultForMorph(String morphName)
+	{Single source of per-morph default values (Noticeable tier). Nipple built-ins
+	 use the declared Default* properties; the extended genital/labia morphs use the
+	 bundled preset values; any other (custom-imported) morph defaults to 0.
+	 String == is case-sensitive, so keys must match MorphNames exactly.}
+	If morphName == "NippleSize"
+		Return DefaultSize
+	ElseIf morphName == "NippleLength"
+		Return DefaultLength
+	ElseIf morphName == "NipplePerkiness"
+		Return DefaultCone
+	ElseIf morphName == "AreolaSize"
+		Return DefaultArea
+	ElseIf morphName == "innieoutie"
+		Return 0.3
+	ElseIf morphName == "labiapuffyness"
+		Return 0.2
+	ElseIf morphName == "labiamorepuffyness_v2"
+		Return 0.1
+	ElseIf morphName == "labiaprotrude"
+		Return 0.4
+	ElseIf morphName == "labiaprotrude2"
+		Return 0.1
+	ElseIf morphName == "labiaprotrudeback"
+		Return 0.1
+	ElseIf morphName == "labiaspread"
+		Return 0.1
+	ElseIf morphName == "vaginasize"
+		Return 0.1
+	ElseIf morphName == "vaginahole"
+		Return 0.1
+	ElseIf morphName == "clit"
+		Return 0.6
+	ElseIf morphName == "clitswell_v2"
+		Return 1.0
+	ElseIf morphName == "cutepuffyness"
+		Return 0.2
+	EndIf
+	Return 0.0
+EndFunction
+
+Int Function MorphCount()
+	{Number of populated morph slots (stop at the first empty name). Used by the MCM
+	 to sync its render/handler count to whatever the table actually holds.}
+	Int i = 0
+	While i < 128 && MorphNames[i] != ""
+		i += 1
+	EndWhile
+	Return i
 EndFunction

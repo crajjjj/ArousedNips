@@ -101,6 +101,16 @@ event OnConfigOpen()
 	oidMaxValue = new int[128]
 	bool isOk = TTT_ArousedNipsMainQuest.isNioOk && TTT_ArousedNipsMainQuest.isSLAroused28 || TTT_ArousedNipsMainQuest.isNioOk && TTT_ArousedNipsMainQuest.isSLAroused29
 	hasReqFlag = OPTION_FLAG_DISABLED * (!isOk) as int
+	; Upgrade heal: a save from before the full morph set shipped only the 4 nipple
+	; morphs. Append the genital/labia sliders so they appear without a manual Reset.
+	; EnsureFullMorphSet is non-destructive -- it preserves the existing 4 nipple
+	; values (and their tuning). Self-terminating: after it runs MorphCount() is 23,
+	; so this won't fire again.
+	If TTT_ArousedNipsMainQuest.MorphCount() == 4
+		TTT_ArousedNipsMainQuest.EnsureFullMorphSet()
+	EndIf
+	; Keep the MCM-side morph count in sync with whatever the table actually holds.
+	TTT_AN_Morphs = TTT_ArousedNipsMainQuest.MorphCount()
 endEvent
 
 Event OnConfigClose()
@@ -122,11 +132,14 @@ event OnPageReset(string page)
 	;;;;;;;;;;;;;;;;;;;;;;;;;;
 	If page == pages[0] || pages[0] == ""
 		;Config
+		; Sync the render/handler count to the live morph table (handles the Extended
+		; toggle, Import, and Reset all having changed it) before drawing sliders.
+		TTT_AN_Morphs = TTT_ArousedNipsMainQuest.MorphCount()
 		SetCursorFillMode(TOP_TO_BOTTOM)
-		
+
 		;Left side
 		SetCursorPosition(0)
-		
+
 		AddHeaderOption("ArousedNips "+ version)
 		AddEmptyOption()
 		AddTextOption("Note: NippleSize is an inverted slider;","",hasReqFlag)
@@ -231,13 +244,13 @@ endstate
 
 state State_Reset
 	event OnHighlightST()
-		SetInfoText("Wipe everything back to install defaults: 4 nipple morphs, all toggles to their on-install state, scan radius 1000, poll 5s. Re-runs the SLA / NiOverride requirements check. Use this to recover from broken save state (sliders all 0.00, SLA requirement stuck on \"Try Load Save\", upgrade from a different fork). Your tuning will be lost -- after reset you can click Import Settings to re-load the bundled preset or a previously-exported config.")
+		SetInfoText("Wipe everything back to install defaults: the full nipple + genital/labia morph set, all toggles to their on-install state, scan radius 1000, poll 5s. Re-runs the SLA / NiOverride requirements check. Use this to recover from broken save state (sliders all 0.00, SLA requirement stuck on \"Try Load Save\", upgrade from a different fork). Your tuning will be lost -- afterwards pick an Intensity preset or tune the sliders.")
 	endevent
 	event OnSelectST()
-		; Reset the MCM-side morph count too -- it's persisted separately from the
-		; quest's MorphNames array and the quest reset doesn't see it.
-		TTT_AN_Morphs = 4
 		TTT_ArousedNipsMainQuest.ResetAllState()
+		; Sync the MCM-side morph count to the rebuilt table (persisted separately
+		; from the quest's MorphNames array, which the quest reset doesn't see).
+		TTT_AN_Morphs = TTT_ArousedNipsMainQuest.MorphCount()
 		SetTextOptionValueST("Done")
 		ForcePageReset()
 	endevent
@@ -351,7 +364,7 @@ event OnOptionDefault(int option)
 		return
 	Else
 		int i = 0
-		while i < 4
+		while i < TTT_AN_Morphs
 			If option == oidMaxValue[i]
 				TTT_ArousedNipsMainQuest.MaxValue[i] = TTT_ArousedNipsMainQuest.MaxDefault[i]
 				SetSliderOptionValue(option, TTT_ArousedNipsMainQuest.MaxValue[i], "{2}")
@@ -390,7 +403,7 @@ Event OnOptionSliderOpen(Int option)
 	SetSliderDialogInterval(0.01)
 
 	int i = 0
-	while i < 4
+	while i < TTT_AN_Morphs
 		If option == oidMaxValue[i]
 			SetSliderDialogStartValue(TTT_ArousedNipsMainQuest.MaxValue[i])
 			SetSliderDialogDefaultValue(TTT_ArousedNipsMainQuest.MaxDefault[i])
@@ -419,7 +432,7 @@ Event OnOptionSliderAccept(Int option, Float value)
 	EndIf
 
 	int i = 0
-	while i < 4
+	while i < TTT_AN_Morphs
 		If option == oidMaxValue[i]
 			TTT_ArousedNipsMainQuest.MaxValue[i] = value
 			SetSliderOptionValue(option, TTT_ArousedNipsMainQuest.MaxValue[i], "{2}")
@@ -451,7 +464,7 @@ Event OnOptionHighlight(Int option)
 		SetInfoText("How much of the arousal morph remains while the chest is covered. 0.00 = nipples flat under armor (no clipping); 1.00 = no reduction. Negative values invert the morph -- because NippleSize is inverted, a negative scale pushes the nipples smaller than baseline (an active tuck for tight tops). Only applies when 'Suppress morphs under armor' is on.")
 	Else
 		int i = 0
-		while i < 4
+		while i < TTT_AN_Morphs
 			If option == oidMaxValue[i]
 				SetInfoText("Value of Morph " + TTT_ArousedNipsMainQuest.MorphNames[i] + " at arousal 100")
 				return

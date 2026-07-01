@@ -87,10 +87,17 @@ Changes
   back to the same vanilla cuirass / body-clothing check SexLab Aroused
   itself uses (correctly ignoring naked-body armors / SOS). The player
   refreshes the instant you equip/unequip; NPCs collapse on the next scan.
+- Full morph set now shown by default. The MCM lists all ~23 morphs (nipple
+  + genital/labia) out of the box, so you no longer have to click "Import
+  Settings" to reveal them -- that flow was misleading (it sounded like it
+  restored a saved config) and hid functionality. Sliders for morphs your
+  body doesn't define are harmless no-ops. Also fixed the per-morph slider
+  handlers, which previously only let you edit the first 4 morphs; every
+  morph is now editable. (Import / Export remain, for backing up and moving
+  your config between saves; Recovery > Reset rebuilds the full set.)
 - Fixed the bundled morph preset filename: it shipped as "morphs.json"
-  (plural, a leftover from the Anon 2.0.4 fork) but Import Settings reads
-  "morph.json". Renamed so Recovery > Import Settings actually loads the
-  23-morph labia/vagina preset again.
+  (plural, a leftover from the Anon 2.0.4 fork) but the code reads
+  "morph.json". Renamed for consistency.
 
 2.1.2 (by crajjjj)
 - New MCM "Intensity preset" combobox under the Performance header. Four
