@@ -26,6 +26,13 @@ Faction AND_Topless
 Keyword kwArmorCuirass
 Keyword kwClothingBody
 
+; Player-only reveal-tween state. PlayerArmorScale is the armor scale last applied
+; to the player (the tween's start point); tweenGen is bumped by any direct player
+; update (poll / heartbeat / a newer equip change) so an in-flight tween bails
+; instead of fighting it.
+Float PlayerArmorScale = 1.0
+Int tweenGen = 0
+
 Event OnInit()
 	{Fires once when the alias is first filled. Warm the sla_Framework cache
 	 eagerly so the manual OnPlayerLoadGame call from Quest.OnInit (and every
@@ -245,22 +252,26 @@ Bool Function IsTopCovered(Actor who)
 EndFunction
 
 Event OnObjectEquipped(Form akBaseObject, ObjectReference akReference)
-	{Player put something on -- refresh immediately so the chest morphs collapse
-	 without waiting for the next poll tick.}
-	RefreshOnArmorChange(akBaseObject)
+	{Player put something on -- suppress immediately (snap, no ease) so the chest
+	 morphs collapse before anything can clip during a redress.}
+	RefreshOnArmorChange(akBaseObject, false)
 EndEvent
 
 Event OnObjectUnequipped(Form akBaseObject, ObjectReference akReference)
-	{Player took something off -- refresh so the morphs come back immediately.}
-	RefreshOnArmorChange(akBaseObject)
+	{Player took something off -- if that bares the chest, ease the morphs back in.}
+	RefreshOnArmorChange(akBaseObject, true)
 EndEvent
 
-Function RefreshOnArmorChange(Form akBaseObject)
-	{Player-only immediate morph refresh when armor is equipped/unequipped. Gated
-	 on the same requirements as the poll loop so we never poke NiOverride when the
-	 mod is non-functional. With AND, a top change can come from many slots, so we
-	 refresh on any worn armor (after a short settle so AND updates its factions
-	 first); without AND only body-slot (32) armor can change the covered state.}
+Function RefreshOnArmorChange(Form akBaseObject, Bool wasRemoved)
+	{Player-only morph refresh when armor is equipped/unequipped. Gated on the same
+	 requirements as the poll loop so we never poke NiOverride when the mod is
+	 non-functional. With AND, a top change can come from many slots, so we react to
+	 any worn armor (after a short settle so AND updates its factions first); without
+	 AND only body-slot (32) armor can change the covered state.
+
+	 Removing armor that leaves the chest bare eases the morphs in over ~1s
+	 (TweenPlayerReveal); every other case snaps via UpdateActor -- notably equipping,
+	 so nipples flatten instantly rather than poking through a redress.}
 	If !TTT_ArousedNipsMainQuest.SuppressUnderArmor
 		return
 	EndIf
@@ -271,10 +282,17 @@ Function RefreshOnArmorChange(Form akBaseObject)
 	If !armo
 		return
 	EndIf
+	If !AND_Resolved && !Math.LogicalAnd(armo.GetSlotMask(), 0x04)
+		; Without AND, only body-slot (32) armor can change the covered state.
+		return
+	EndIf
 	If AND_Resolved
-		Utility.Wait(0.3)
-		UpdateActor(Game.GetPlayer(), TTT_ArousedNipsMainQuest.DebugMode)
-	ElseIf Math.LogicalAnd(armo.GetSlotMask(), 0x04)
+		Utility.Wait(0.3)  ; let AND update its nudity factions first
+	EndIf
+
+	If wasRemoved && !IsTopCovered(Game.GetPlayer())
+		TweenPlayerReveal()
+	Else
 		UpdateActor(Game.GetPlayer(), TTT_ArousedNipsMainQuest.DebugMode)
 	EndIf
 EndFunction
@@ -409,14 +427,27 @@ Function UpdateActor(Actor who, bool doDebug=false, int modifier=0)
 		EndIf
 	EndIf
 
-	; Iterate the morph table until we hit the first empty slot. Honours imported
-	; counts up to 128 (the array size set by OnInit / ImportUserSettings).
-	; Papyrus && short-circuits, so MorphNames[j] is not read once j hits 128.
+	SetActorMorphs(who, Arousal, armorScale, doDebug)
+
+	; Track the player's last-applied scale (the reveal tween's start point) and
+	; cancel any in-flight tween -- a direct update supersedes it.
+	If who == Game.GetPlayer()
+		PlayerArmorScale = armorScale
+		tweenGen += 1
+	EndIf
+EndFunction
+
+Function SetActorMorphs(Actor who, Int arousal, Float scale, Bool doDebug=false)
+	{Write every morph = maxValue * arousal/100 * scale, then push the model update.
+	 Shared by UpdateActor (a single snap) and TweenPlayerReveal (one step of the
+	 reveal ease). Iterates the morph table until the first empty slot; honours
+	 imported counts up to 128. Papyrus && short-circuits, so MorphNames[j] is not
+	 read once j hits 128.}
 	String[] morphNames = TTT_ArousedNipsMainQuest.MorphNames
 	Float[]  maxValues  = TTT_ArousedNipsMainQuest.MaxValue
 	int j = 0
 	while j < 128 && morphNames[j] != ""
-		float Value = maxValues[j] * Arousal / 100 * armorScale
+		float Value = maxValues[j] * arousal / 100 * scale
 		NiOverride.SetBodyMorph(who, morphNames[j], NIO_KEY, Value)
 		If doDebug
 			debug.Notification("ArousedNips: setting "+morphNames[j]+" to "+Value)
@@ -425,6 +456,61 @@ Function UpdateActor(Actor who, bool doDebug=false, int modifier=0)
 		j += 1
 	EndWhile
 	NiOverride.UpdateModelWeight(who)
+EndFunction
+
+Function TweenPlayerReveal()
+	{Gradually grow the player's morphs from the currently-applied armor scale up to
+	 the now-uncovered target over ~1s, for a smooth reveal when body armor is
+	 removed. Player-only. Arousal is read once and held constant across the short
+	 tween. Overlap-guarded: bumps tweenGen and bails if a newer update (another
+	 equip change, the poll, or the heartbeat) supersedes it mid-ease.}
+	Actor player = Game.GetPlayer()
+	If !player
+		return
+	EndIf
+
+	; Target scale after the armor change (1.0 = bare; still-covered -> no reveal).
+	Float target = 1.0
+	If TTT_ArousedNipsMainQuest.SuppressUnderArmor && IsTopCovered(player)
+		target = TTT_ArousedNipsMainQuest.UnderArmorScale
+	EndIf
+	Float from = PlayerArmorScale
+	If target == from
+		; Already at the target (e.g. was never suppressed) -- nothing to animate.
+		return
+	EndIf
+
+	slaFrameworkScr framework = GetFramework()
+	If !framework
+		return
+	EndIf
+	Int arousal = framework.GetActorArousal(player)
+	If arousal > 100
+		arousal = 100
+	ElseIf arousal < 0
+		arousal = 0
+	EndIf
+
+	; Claim this tween; a newer one (or any UpdateActor on the player) will bump
+	; tweenGen and make the myGen check below fail, so this loop stops cleanly.
+	tweenGen += 1
+	Int myGen = tweenGen
+
+	Int steps = 10
+	Int s = 1
+	While s <= steps && myGen == tweenGen
+		Float f = from + (target - from) * s / steps
+		SetActorMorphs(player, arousal, f)
+		PlayerArmorScale = f
+		Utility.Wait(0.1)
+		s += 1
+	EndWhile
+
+	; Pin the exact target if we ran to completion (weren't superseded).
+	If myGen == tweenGen
+		SetActorMorphs(player, arousal, target)
+		PlayerArmorScale = target
+	EndIf
 EndFunction
 
 Event OnStageStart(string eventName, string argString, float argNum, form sender)
