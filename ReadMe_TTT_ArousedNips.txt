@@ -1,4 +1,4 @@
-ArousedNips 1.1.2
+ArousedNips 2.1.4
 by TanookiTamaTachi
 
 This is a small mod that applies BodyMorphs to characters' nipples, depending on their arousal.
@@ -35,8 +35,8 @@ Strongly recommended:
   anything (slider tuning, preset import, requirements check display,
   recovery reset all require the MCM).
 
-Optional -- only if importing the bundled 23-morph preset (Recovery >
-Import Settings in MCM):
+Optional -- only if using the extended genital/labia morphs (shipped in
+the slider table by default since 2.1.3):
 - A body / morph pack that defines the labia / vagina / clit slider names
   referenced by the preset (innieoutie, labianeat_v2, labiatightup,
   labiapuffyness, labiamorepuffyness_v2, labiaprotrude / 2 / back,
@@ -70,6 +70,40 @@ Just remove the mod. NiOverride will automatically remove all the morphs.
 yeh. That's all.
 
 Changes
+2.1.4 (by crajjjj)
+- MCM reworked into two pages. The old single page ran past SkyUI's
+  ~26-row column limit once the full 23-morph slider set shipped, so the
+  last sliders were cut off and unreachable.
+    * "General": requirements status, player arousal check, intensity
+      preset, under-armor, performance, actor filters, debug,
+      import/export, recovery.
+    * "Morphs": all per-morph max-value sliders, split across both
+      columns.
+- Install defaults rebased from the "Noticeable" tier to "Natural": a
+  fresh install (and the Reset button) now starts with the Natural
+  preset values, and the preset combobox shows "Natural" accordingly.
+  Existing saves keep their tuned sliders; only the R-key per-slider
+  defaults move to the Natural values (on the next game load).
+- Requirements rows are now plain OK / MISSING status text instead of
+  do-nothing checkboxes.
+- New "Player arousal - Check now" row: re-applies the player's morphs
+  immediately and reports the arousal that was written. Quick way to
+  verify the mod is working without waiting for the poll. Says "skipped
+  by filters" instead of a number when an Actor filter excluded your
+  character (e.g. a male player with "Ignore males" on), so it can't
+  report a pass when nothing was applied.
+- Import/Export fixes:
+    * "Player poll interval" and the selected intensity preset now
+      round-trip through config.json (previously silently skipped; the
+      poll is also re-armed at the imported interval).
+    * Importing a morph table now rebuilds the per-slider defaults
+      immediately (previously the R-key default served values from the
+      old table until the next game load).
+    * Importing a config with a different Debug mode now grants/removes
+      the debug spell on menu close, same as toggling it by hand.
+    * Import/Export stay enabled even while the requirements check
+      fails -- they are part of the recovery story, like Reset.
+
 2.1.3 (by crajjjj)
 - Under-armor suppression. Nipple/areola morphs now scale down while the
   chest is covered, so fitted nipples no longer clip through tops. New MCM

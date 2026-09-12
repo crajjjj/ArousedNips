@@ -42,9 +42,14 @@ string[] Property MorphNames Auto Hidden
 float[] Property MaxValue Auto Hidden
 float[] Property MaxDefault Auto Hidden
 
-float Property DefaultSize = -0.75 AutoReadOnly Hidden
-float Property DefaultLength = 1.0 AutoReadOnly Hidden
-float Property DefaultCone = 1.5 AutoReadOnly Hidden
+; Install-default slider values = the "Natural" intensity tier (matches
+; IntensityPresets\Natural.json exactly). Was the stronger "Noticeable" tier
+; before 2.1.4. AutoReadOnly = compiled constants, not cosave-persisted, so an
+; updated .pex changes these on existing saves too (via the per-load
+; ResetDefaults rebuild) without touching the user's tuned MaxValue sliders.
+float Property DefaultSize = -0.4 AutoReadOnly Hidden
+float Property DefaultLength = 0.5 AutoReadOnly Hidden
+float Property DefaultCone = 0.8 AutoReadOnly Hidden
 float Property DefaultArea = 0.0 AutoReadOnly Hidden
 
 ; Player-only morph poll interval (seconds). SLA NG only broadcasts
@@ -65,10 +70,11 @@ float Property DefaultScanCellRadius = 1000.0 AutoReadOnly Hidden
 ; Last-selected intensity preset (Minimal / Natural / Noticeable / Exaggerated)
 ; from the MCM combobox. Display-only -- the actual values are loaded from
 ; SKSE\Plugins\StorageUtilData\ArousedNips\IntensityPresets\<name>.json into
-; MaxValue[] at selection time. Empty string means the user hasn't picked one
-; yet (or did a Reset, which clears this back to ""), and the combobox shows
-; "Choose...".
-String Property IntensityPreset = "" Auto Hidden
+; MaxValue[] at selection time. Defaults to "Natural" because the built-in
+; install defaults (DefaultForMorph) ARE the Natural tier since 2.1.4, so a
+; fresh install / Reset honestly shows "Natural". Empty string (possible on
+; saves upgraded from pre-2.1.2) makes the combobox show "Choose...".
+String Property IntensityPreset = "Natural" Auto Hidden
 
 
 
@@ -114,7 +120,8 @@ Function ResetAllState()
 	IgnoreFemaleBeast = true
 	PollInterval      = DefaultPollInterval
 	ScanCellRadius    = DefaultScanCellRadius
-	IntensityPreset   = ""
+	; The rebuilt slider values ARE the Natural tier, so label them as such.
+	IntensityPreset   = "Natural"
 	SuppressUnderArmor = true
 	UnderArmorScale   = DefaultUnderArmorScale
 
@@ -222,10 +229,11 @@ Int Function AddMorphIfMissing(String morphName, Int count)
 EndFunction
 
 Float Function DefaultForMorph(String morphName)
-	{Single source of per-morph default values (Noticeable tier). Nipple built-ins
-	 use the declared Default* properties; the extended genital/labia morphs use the
-	 bundled preset values; any other (custom-imported) morph defaults to 0.
-	 String == is case-sensitive, so keys must match MorphNames exactly.}
+	{Single source of per-morph default values (Natural tier -- keep in sync with
+	 IntensityPresets\Natural.json). Nipple built-ins use the declared Default*
+	 properties; the extended genital/labia morphs list only the preset's non-zero
+	 values; any other morph (zero-valued preset entries, custom imports) defaults
+	 to 0. String == is case-sensitive, so keys must match MorphNames exactly.}
 	If morphName == "NippleSize"
 		Return DefaultSize
 	ElseIf morphName == "NippleLength"
@@ -235,29 +243,17 @@ Float Function DefaultForMorph(String morphName)
 	ElseIf morphName == "AreolaSize"
 		Return DefaultArea
 	ElseIf morphName == "innieoutie"
-		Return 0.3
+		Return 0.1
 	ElseIf morphName == "labiapuffyness"
-		Return 0.2
-	ElseIf morphName == "labiamorepuffyness_v2"
 		Return 0.1
 	ElseIf morphName == "labiaprotrude"
-		Return 0.4
-	ElseIf morphName == "labiaprotrude2"
-		Return 0.1
-	ElseIf morphName == "labiaprotrudeback"
-		Return 0.1
-	ElseIf morphName == "labiaspread"
-		Return 0.1
-	ElseIf morphName == "vaginasize"
-		Return 0.1
-	ElseIf morphName == "vaginahole"
-		Return 0.1
-	ElseIf morphName == "clit"
-		Return 0.6
-	ElseIf morphName == "clitswell_v2"
-		Return 1.0
-	ElseIf morphName == "cutepuffyness"
 		Return 0.2
+	ElseIf morphName == "clit"
+		Return 0.4
+	ElseIf morphName == "clitswell_v2"
+		Return 0.6
+	ElseIf morphName == "cutepuffyness"
+		Return 0.1
 	EndIf
 	Return 0.0
 EndFunction

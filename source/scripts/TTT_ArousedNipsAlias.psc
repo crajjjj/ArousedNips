@@ -33,6 +33,11 @@ Keyword kwClothingBody
 Float PlayerArmorScale = 1.0
 Int tweenGen = 0
 
+; Arousal value last actually WRITTEN to the player by UpdateActor. Reported by
+; PokePlayerArousal so the MCM's check row shows the number that was applied,
+; not a second, independently-read one.
+Int PlayerLastArousal = 0
+
 Event OnInit()
 	{Fires once when the alias is first filled. Warm the sla_Framework cache
 	 eagerly so the manual OnPlayerLoadGame call from Quest.OnInit (and every
@@ -194,6 +199,25 @@ Function RestartPolling()
 	EndIf
 EndFunction
 
+Int Function PokePlayerArousal()
+	{MCM helper for the "Player arousal" row: re-apply the player's morphs right now
+	 and report what was written. Returns the arousal actually applied (0..100), or a
+	 negative sentinel the MCM renders as its own label:
+	   -1  SLA framework unavailable (nothing to read).
+	   -2  UpdateActor declined to write -- the actor filters excluded the player
+	       (male PC with Ignore males on, dead, etc). Reporting an arousal number
+	       here would be a false pass: no morphs were applied.
+	 The returned value is the one UpdateActor wrote (via PlayerLastArousal), not a
+	 second independent GetActorArousal read, so the row can't disagree with the body.}
+	If !GetFramework()
+		Return -1
+	EndIf
+	If !UpdateActor(Game.GetPlayer(), TTT_ArousedNipsMainQuest.DebugMode)
+		Return -2
+	EndIf
+	Return PlayerLastArousal
+EndFunction
+
 Bool Function CheckNiOverride()
 	Return SKSE.GetPluginVersion("skee") >= SKEE_VERSION && NiOverride.GetScriptVersion() >= NIOVERRIDE_SCRIPT_VERSION
 EndFunction
@@ -350,19 +374,24 @@ Event OnArousalComputed(string eventName, string argString, float argNum, form s
 	EndIf
 endEvent
 
-Function UpdateActor(Actor who, bool doDebug=false, int modifier=0)
-	{Set morphs of "who" according to their arousal, offset by "modifier".}
+Bool Function UpdateActor(Actor who, bool doDebug=false, int modifier=0)
+	{Set morphs of "who" according to their arousal, offset by "modifier".
+
+	 Returns true when morphs were actually written, false on every bail-out
+	 (null actor, no ActorBase, excluded by an Ignore filter, no SLA framework).
+	 Callers that just want the side effect can discard it; PokePlayerArousal
+	 uses it so the MCM check row can't report a pass on a skipped actor.}
 	If !who
 		; Callers (OnArousalComputed, OnStageStart) guard their array entries,
 		; but the debug spell's crosshair fallback and any third-party script
 		; that ends up here can still pass None. Bail rather than null-deref.
-		return
+		return false
 	EndIf
 	ActorBase whoBase = who.GetLeveledActorBase()
 	If !whoBase
 		; LeveledActorBase can return None for actors in unusual states (e.g.
 		; mid-spawn). No way to filter by sex / IsDead without it -- skip.
-		return
+		return false
 	EndIf
 	; ActorBase.GetSex() encodes both gender and creature-ness:
 	;   0 = male NPC, 1 = female NPC, 2 = male creature, 3 = female creature.
@@ -388,7 +417,7 @@ Function UpdateActor(Actor who, bool doDebug=false, int modifier=0)
 			debug.Notification("ArousedNips: "+whoBase.GetName()+" "+skipReason+", skipping")
 			debug.Trace("TTT_ArousedNips: "+whoBase.GetName()+" "+skipReason+", skipping")
 		EndIF
-		return
+		return false
 	EndIf
 
 	; Portable per-actor arousal read (works on SLA NG, SLO, OSL Aroused, eXtended).
@@ -405,7 +434,7 @@ Function UpdateActor(Actor who, bool doDebug=false, int modifier=0)
 			debug.Notification("ArousedNips: "+whoBase.GetName()+" -- SLA framework unavailable, skipping")
 			debug.Trace("TTT_ArousedNips: "+whoBase.GetName()+" -- SLA framework unavailable, skipping")
 		EndIf
-		return
+		return false
 	EndIf
 	int Arousal = framework.GetActorArousal(who) + modifier
 	If Arousal > 100
@@ -430,11 +459,14 @@ Function UpdateActor(Actor who, bool doDebug=false, int modifier=0)
 	SetActorMorphs(who, Arousal, armorScale, doDebug)
 
 	; Track the player's last-applied scale (the reveal tween's start point) and
-	; cancel any in-flight tween -- a direct update supersedes it.
+	; arousal (reported by PokePlayerArousal), and cancel any in-flight tween --
+	; a direct update supersedes it.
 	If who == Game.GetPlayer()
 		PlayerArmorScale = armorScale
+		PlayerLastArousal = Arousal
 		tweenGen += 1
 	EndIf
+	return true
 EndFunction
 
 Function SetActorMorphs(Actor who, Int arousal, Float scale, Bool doDebug=false)

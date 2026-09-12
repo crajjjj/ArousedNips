@@ -10,8 +10,6 @@ int hasReqFlag
 
 int oidDebugMode
 int oidIgnoreMales
-int oidImportS
-int oidExportS
 int oidPollInterval
 int oidScanCellRadius
 int oidIgnoreDead
@@ -58,7 +56,15 @@ int function GetVersion()
 	; armor toggle + Nipple size under armor slider, -1..1; Advanced Nudity
 	; Detection-aware top-nudity gating in the alias, vanilla cuirass/clothing
 	; worn-keyword fallback without AND).
-	return 20103
+	; 2.01.04 reworks the MCM into two pages (General / Morphs -- the single
+	; page ran past SkyUI's ~26-row column limit and clipped the last morph
+	; sliders), adds the "Player arousal" check row, and rounds out
+	; Import/Export (pollinterval + intensitypreset now round-trip, imported
+	; morph tables get correct slider defaults without a reload, DebugMode
+	; import syncs the debug spell). Install-default slider values rebased
+	; from the Noticeable tier to the Natural tier (DefaultForMorph ==
+	; Natural.json; fresh installs / Reset show preset "Natural").
+	return 20104
 endFunction
 
 Event OnVersionUpdate(Int ver)
@@ -88,19 +94,15 @@ EndEvent
 event OnConfigRegister()
 	debug.Notification("ArousedNips: MCM registered!")
 	debug.Trace("TTT_ArousedNips: MCM registered!")
-	Pages = new string[1]
-	pages[0] = "General"
+	SetupPages()
 	oidMaxValue = new int[128]
 	TTT_ArousedNipsMainQuest.start()
 endEvent
 
 
 event OnConfigOpen()
-	Pages = new string[1]
-	pages[0] = "General"
+	SetupPages()
 	oidMaxValue = new int[128]
-	bool isOk = TTT_ArousedNipsMainQuest.isNioOk && TTT_ArousedNipsMainQuest.isSLAroused28 || TTT_ArousedNipsMainQuest.isNioOk && TTT_ArousedNipsMainQuest.isSLAroused29
-	hasReqFlag = OPTION_FLAG_DISABLED * (!isOk) as int
 	; Upgrade heal: a save from before the full morph set shipped only the 4 nipple
 	; morphs. Append the genital/labia sliders so they appear without a manual Reset.
 	; EnsureFullMorphSet is non-destructive -- it preserves the existing 4 nipple
@@ -112,6 +114,26 @@ event OnConfigOpen()
 	; Keep the MCM-side morph count in sync with whatever the table actually holds.
 	TTT_AN_Morphs = TTT_ArousedNipsMainQuest.MorphCount()
 endEvent
+
+Function SetupPages()
+	Pages = new string[2]
+	Pages[0] = "General"
+	Pages[1] = "Morphs"
+EndFunction
+
+Function RefreshReqFlag()
+	{Recompute the disabled-flag applied to every requirement-gated option.
+
+	 Must run on EVERY page draw, not once per menu open: Recovery > Reset re-runs
+	 the requirements check mid-menu (ResetAllState -> Alias.OnPlayerLoadGame) and
+	 then redraws. A flag cached at open time would leave the gated options greyed
+	 out against freshly-drawn "OK" status rows until the MCM was closed and
+	 reopened -- failing exactly the recovery path Reset exists for.}
+	hasReqFlag = 0
+	If !(TTT_ArousedNipsMainQuest.isNioOk && (TTT_ArousedNipsMainQuest.isSLAroused28 || TTT_ArousedNipsMainQuest.isSLAroused29))
+		hasReqFlag = OPTION_FLAG_DISABLED
+	EndIf
+EndFunction
 
 Event OnConfigClose()
 	if toggleDebugSpell
@@ -130,99 +152,169 @@ event OnPageReset(string page)
 	;oid = AddToggleOption("desc",val,flag)
 	;oid = AddTextOption("desc","val",flag)
 	;;;;;;;;;;;;;;;;;;;;;;;;;;
-	If page == pages[0] || pages[0] == ""
-		;Config
-		; Sync the render/handler count to the live morph table (handles the Extended
-		; toggle, Import, and Reset all having changed it) before drawing sliders.
-		TTT_AN_Morphs = TTT_ArousedNipsMainQuest.MorphCount()
-		SetCursorFillMode(TOP_TO_BOTTOM)
-
-		;Left side
-		SetCursorPosition(0)
-
-		AddHeaderOption("ArousedNips "+ version)
-		AddEmptyOption()
-		AddTextOption("Note: NippleSize is an inverted slider;","",hasReqFlag)
-		AddTextOption("smaller number means bigger result.","",hasReqFlag)
-		AddHeaderOption("Morphs " + TTT_AN_Morphs)
-		
-		int i = 0
-		while i < TTT_AN_Morphs
-			if TTT_ArousedNipsMainQuest.MorphNames[i] == ""
-				; Stop on first empty slot so we don't render a bogus blank row.
-				; Setting i past the loop bound is the Papyrus idiom (no `break`).
-				i = TTT_AN_Morphs
-			else
-				oidMaxValue[i] = AddSliderOption(TTT_ArousedNipsMainQuest.MorphNames[i], TTT_ArousedNipsMainQuest.MaxValue[i], "{2}", hasReqFlag)
-				i += 1
-			endif
-		EndWhile
-		AddHeaderOption("")
-		;TODO: Anything else?
-		
-		;Right side
-		SetCursorPosition(1)
-		AddHeaderOption("Requirements Checks")
-		AddToggleOption("NiOverride (Required)", TTT_ArousedNipsMainQuest.isNiOok)
-		if TTT_ArousedNipsMainQuest.isSLAroused29
-			AddToggleOption("SLAroused (Required) NG / 3.x", TTT_ArousedNipsMainQuest.isSLAroused29)
-		elseif TTT_ArousedNipsMainQuest.isSLAroused28
-			AddToggleOption("SLAroused (Required) Legacy / OSL stub", TTT_ArousedNipsMainQuest.isSLAroused28)
-		else
-			AddTextOption("SLAroused (Required)","Try Load Save",OPTION_FLAG_DISABLED)
-		endif
-		
-
-		int a_flags = 1
-		if TTT_ArousedNipsMainQuest.isNiOok
-			a_flags = 0
-		endif
-		
-		AddHeaderOption("Performance")
-		oidPollInterval    = AddSliderOption("Player poll interval (s)", TTT_ArousedNipsMainQuest.PollInterval, "{1}", hasReqFlag)
-		oidScanCellRadius  = AddSliderOption("NPC scan radius (units)",  TTT_ArousedNipsMainQuest.ScanCellRadius, "{0}", hasReqFlag)
-
-		AddHeaderOption("Intensity preset")
-		; Display the last-selected preset name, or a placeholder if none selected
-		; yet (fresh install, post-Reset). Selecting one overwrites every MaxValue
-		; slider with the preset's values for whichever morphs are currently
-		; loaded -- sliders for morphs not in the preset (e.g. user-imported
-		; morphs the bundled presets don't cover) keep their current values.
-		String presetLabel = TTT_ArousedNipsMainQuest.IntensityPreset
-		If presetLabel == ""
-			presetLabel = "Choose..."
-		EndIf
-		AddMenuOptionST("State_IntensityPreset", "Preset", presetLabel, hasReqFlag)
-
-		AddHeaderOption("Under armor")
-		oidSuppressUnderArmor = AddToggleOption("Suppress morphs under armor", TTT_ArousedNipsMainQuest.SuppressUnderArmor)
-		; Slider stays visible but disabled while suppression is off, so its role is clear.
-		int uaFlag = hasReqFlag
-		if !TTT_ArousedNipsMainQuest.SuppressUnderArmor
-			uaFlag = OPTION_FLAG_DISABLED
-		endif
-		oidUnderArmorScale   = AddSliderOption("Nipple size under armor", TTT_ArousedNipsMainQuest.UnderArmorScale, "{2}", uaFlag)
-
-		AddHeaderOption("Debug")
-		oidIgnoreMales       = AddToggleOption("Ignore Males",          TTT_ArousedNipsMainQuest.IgnoreMales)
-		oidIgnoreDead        = AddToggleOption("Ignore Dead",           TTT_ArousedNipsMainQuest.IgnoreDead)
-		oidIgnoreMaleBeast   = AddToggleOption("Ignore Male Beasts",    TTT_ArousedNipsMainQuest.IgnoreMaleBeast)
-		oidIgnoreFemaleBeast = AddToggleOption("Ignore Female Beasts",  TTT_ArousedNipsMainQuest.IgnoreFemaleBeast)
-		oidDebugMode         = AddToggleOption("Debug mode",            TTT_ArousedNipsMainQuest.DebugMode)
-		AddHeaderOption("IMPORT - EXPORT")
-		AddTextOptionST("State_Page_01","Import Settings","Import", a_flags)
-		AddTextOptionST("State_Page_02","Export Settings","Export", a_flags)
-
-		AddHeaderOption("Recovery")
-		; Reset stays enabled even when NiOverride is missing -- the whole point
-		; of this button is to recover from a state where things aren't right.
-		AddTextOptionST("State_Reset","Reset all state","Reset", 0)
-	Endif
+	RefreshReqFlag()
+	ClearOptionIDs()
+	If page == Pages[1]
+		DrawMorphsPage()
+	Else
+		; "General", and the no-page-selected state ("") right after opening.
+		DrawGeneralPage()
+	EndIf
 endEvent
 
-state State_Page_01
+Function ClearOptionIDs()
+	{Option IDs are only valid for the page that drew them, and SkyUI ids are
+	 buffer indices starting at 0 -- so a stale oid kept from the OTHER page can
+	 numerically collide with a fresh oid on this one and misroute the handler
+	 (e.g. a morph slider opening with the poll-interval dialog range). Wipe
+	 everything to -1 before each page draw.}
+	oidDebugMode          = -1
+	oidIgnoreMales        = -1
+	oidPollInterval       = -1
+	oidScanCellRadius     = -1
+	oidIgnoreDead         = -1
+	oidIgnoreMaleBeast    = -1
+	oidIgnoreFemaleBeast  = -1
+	oidSuppressUnderArmor = -1
+	oidUnderArmorScale    = -1
+	int i = 0
+	while i < 128
+		oidMaxValue[i] = -1
+		i += 1
+	endWhile
+EndFunction
+
+Function DrawGeneralPage()
+	SetCursorFillMode(TOP_TO_BOTTOM)
+
+	;Left side
+	SetCursorPosition(0)
+	AddHeaderOption("ArousedNips " + version)
+
+	AddHeaderOption("Requirements")
+	; Plain (disabled) status text, not clickable toggles -- these are read-only.
+	String nioLabel = "MISSING"
+	If TTT_ArousedNipsMainQuest.isNioOk
+		nioLabel = "OK"
+	EndIf
+	AddTextOption("NiOverride / RaceMenu (SKEE)", nioLabel, OPTION_FLAG_DISABLED)
+	String slaLabel = "MISSING - try loading a save"
+	If TTT_ArousedNipsMainQuest.isSLAroused29
+		slaLabel = "OK - NG / 3.x"
+	ElseIf TTT_ArousedNipsMainQuest.isSLAroused28
+		slaLabel = "OK - Legacy / OSL stub"
+	EndIf
+	AddTextOption("SexLab Aroused", slaLabel, OPTION_FLAG_DISABLED)
+	; Live sanity check: click to read arousal fresh from SLA and re-apply morphs
+	; (PokePlayerArousal on the alias).
+	AddTextOptionST("State_CheckPlayer", "Player arousal", "Check now", hasReqFlag)
+
+	AddHeaderOption("Intensity preset")
+	; Display the last-selected preset name ("Natural" on fresh install / after
+	; Reset, since the built-in defaults ARE the Natural tier; the "Choose..."
+	; placeholder only shows on saves upgraded from pre-2.1.2 where the property
+	; is still ""). Selecting one overwrites every MaxValue
+	; slider with the preset's values for whichever morphs are currently
+	; loaded -- sliders for morphs not in the preset (e.g. user-imported
+	; morphs the bundled presets don't cover) keep their current values.
+	String presetLabel = TTT_ArousedNipsMainQuest.IntensityPreset
+	If presetLabel == ""
+		presetLabel = "Choose..."
+	EndIf
+	AddMenuOptionST("State_IntensityPreset", "Preset", presetLabel, hasReqFlag)
+
+	AddHeaderOption("Under armor")
+	oidSuppressUnderArmor = AddToggleOption("Suppress morphs under armor", TTT_ArousedNipsMainQuest.SuppressUnderArmor, hasReqFlag)
+	; Slider stays visible but disabled while suppression is off, so its role is clear.
+	int uaFlag = hasReqFlag
+	if !TTT_ArousedNipsMainQuest.SuppressUnderArmor
+		uaFlag = OPTION_FLAG_DISABLED
+	endif
+	oidUnderArmorScale = AddSliderOption("Nipple size under armor", TTT_ArousedNipsMainQuest.UnderArmorScale, "{2}", uaFlag)
+
+	AddHeaderOption("Performance")
+	oidPollInterval   = AddSliderOption("Player poll interval (s)", TTT_ArousedNipsMainQuest.PollInterval, "{1}", hasReqFlag)
+	oidScanCellRadius = AddSliderOption("NPC scan radius (units)",  TTT_ArousedNipsMainQuest.ScanCellRadius, "{0}", hasReqFlag)
+
+	;Right side
+	SetCursorPosition(1)
+	AddHeaderOption("Actor filters")
+	oidIgnoreMales       = AddToggleOption("Ignore males",         TTT_ArousedNipsMainQuest.IgnoreMales)
+	oidIgnoreDead        = AddToggleOption("Ignore dead",          TTT_ArousedNipsMainQuest.IgnoreDead)
+	oidIgnoreMaleBeast   = AddToggleOption("Ignore male beasts",   TTT_ArousedNipsMainQuest.IgnoreMaleBeast)
+	oidIgnoreFemaleBeast = AddToggleOption("Ignore female beasts", TTT_ArousedNipsMainQuest.IgnoreFemaleBeast)
+
+	AddHeaderOption("Debug")
+	oidDebugMode = AddToggleOption("Debug mode", TTT_ArousedNipsMainQuest.DebugMode)
+
+	AddHeaderOption("Import / Export")
+	; Deliberately never disabled: they only move JSON <-> quest properties, and
+	; staying usable when the requirements check fails is part of the recovery
+	; story (same reasoning as the Reset button below).
+	AddTextOptionST("State_Import", "Import settings", "Import", 0)
+	AddTextOptionST("State_Export", "Export settings", "Export", 0)
+
+	AddHeaderOption("Recovery")
+	; Reset stays enabled even when NiOverride is missing -- the whole point
+	; of this button is to recover from a state where things aren't right.
+	AddTextOptionST("State_Reset", "Reset all state", "Reset", 0)
+EndFunction
+
+Function DrawMorphsPage()
+	; Sync the render/handler count to the live morph table (handles the upgrade
+	; heal, Import, and Reset all having changed it) before drawing sliders.
+	TTT_AN_Morphs = TTT_ArousedNipsMainQuest.MorphCount()
+	SetCursorFillMode(TOP_TO_BOTTOM)
+
+	;Left side
+	SetCursorPosition(0)
+	AddHeaderOption("Morphs (" + TTT_AN_Morphs + ")")
+	AddTextOption("Note: NippleSize is an inverted slider;", "", OPTION_FLAG_DISABLED)
+	AddTextOption("smaller number means bigger result.", "", OPTION_FLAG_DISABLED)
+
+	; Split the table across both columns. SkyUI renders ~26 rows per column with
+	; no scrolling, so a single column clips past ~22 sliders (which is exactly
+	; what the pre-2.1.4 one-page layout did to the 23-morph set).
+	int split = (TTT_AN_Morphs + 1) / 2
+	int i = 0
+	while i < split
+		oidMaxValue[i] = AddSliderOption(TTT_ArousedNipsMainQuest.MorphNames[i], TTT_ArousedNipsMainQuest.MaxValue[i], "{2}", hasReqFlag)
+		i += 1
+	endWhile
+
+	;Right side -- pad with blanks so the slider rows line up with the left column.
+	SetCursorPosition(1)
+	AddHeaderOption("")
+	AddEmptyOption()
+	AddEmptyOption()
+	while i < TTT_AN_Morphs
+		oidMaxValue[i] = AddSliderOption(TTT_ArousedNipsMainQuest.MorphNames[i], TTT_ArousedNipsMainQuest.MaxValue[i], "{2}", hasReqFlag)
+		i += 1
+	endWhile
+EndFunction
+
+state State_CheckPlayer
 	event OnHighlightST()
-		SetInfoText("Import Settings")
+		SetInfoText("Click to read the player's arousal fresh from SexLab Aroused and re-apply the morphs immediately. Quick way to verify the mod is working without waiting for the poll or SLA's scan tick. Shows the arousal that was actually written; \"skipped by filters\" means an Actor filter excluded your character (e.g. a male player with 'Ignore males' on), so no morphs were applied.")
+	endevent
+	event OnSelectST()
+		SetTextOptionValueST("...")
+		int arousal = TTT_ArousedNipsMainQuest.TTT_ArousedNipsPlayerAlias.PokePlayerArousal()
+		If arousal == -1
+			SetTextOptionValueST("SLA unavailable")
+		ElseIf arousal == -2
+			; The actor filters (Ignore males / dead / beasts) excluded the player, so
+			; UpdateActor wrote nothing -- reporting a number here would be a false pass.
+			SetTextOptionValueST("skipped by filters")
+		Else
+			SetTextOptionValueST(arousal + " (applied)")
+		EndIf
+	endevent
+endstate
+
+state State_Import
+	event OnHighlightST()
+		SetInfoText("Load toggles, sliders and the morph table from SKSE\\Plugins\\StorageUtilData\\ArousedNips\\ (config.json + morph.json). Overwrites your current MCM values.")
 	endevent
 	event OnSelectST()
 		ImportUserSettings()
@@ -231,9 +323,9 @@ state State_Page_01
 	endevent
 endstate
 
-state State_Page_02
+state State_Export
 	event OnHighlightST()
-		SetInfoText("Export Settings")
+		SetInfoText("Save the current toggles, sliders and morph table to SKSE\\Plugins\\StorageUtilData\\ArousedNips\\ (config.json + morph.json). Use it to back up tuning or copy it between saves.")
 	endevent
 	event OnSelectST()
 		ExportUserSettings()
@@ -244,7 +336,7 @@ endstate
 
 state State_Reset
 	event OnHighlightST()
-		SetInfoText("Wipe everything back to install defaults: the full nipple + genital/labia morph set, all toggles to their on-install state, scan radius 1000, poll 5s. Re-runs the SLA / NiOverride requirements check. Use this to recover from broken save state (sliders all 0.00, SLA requirement stuck on \"Try Load Save\", upgrade from a different fork). Your tuning will be lost -- afterwards pick an Intensity preset or tune the sliders.")
+		SetInfoText("Wipe everything back to install defaults: the full nipple + genital/labia morph set at the Natural preset values, all toggles to their on-install state, scan radius 1000, poll 5s. Re-runs the SLA / NiOverride requirements check. Use this to recover from broken save state (sliders all 0.00, SLA requirement stuck on \"MISSING\", upgrade from a different fork). Your tuning will be lost -- afterwards pick an Intensity preset or tune the sliders.")
 	endevent
 	event OnSelectST()
 		TTT_ArousedNipsMainQuest.ResetAllState()
@@ -282,11 +374,11 @@ state State_IntensityPreset
 		ApplyIntensityPreset(preset)
 		TTT_ArousedNipsMainQuest.IntensityPreset = preset
 		SetMenuOptionValueST(preset)
-		; Redraw so the morph sliders pick up their new MaxValue.
+		; Redraw so the Morphs page picks up the new MaxValue on its next draw.
 		ForcePageReset()
 	endevent
 	event OnHighlightST()
-		SetInfoText("Overwrites the per-morph MaxValue sliders with a named preset. Minimal = barely visible at peak arousal. Natural = realistic when fully aroused. Noticeable = current install defaults; clearly visible. Exaggerated = strongly emphasised. Your tuning will be replaced; the Reset all state button clears it back to Noticeable-equivalent built-in defaults.")
+		SetInfoText("Overwrites the per-morph MaxValue sliders with a named preset. Minimal = barely visible at peak arousal. Natural = realistic when fully aroused; the install default. Noticeable = clearly visible. Exaggerated = strongly emphasised. Your tuning will be replaced; the Reset all state button also returns the sliders to the Natural values.")
 	endevent
 endstate
 
@@ -478,8 +570,9 @@ Event OnOptionHighlight(Int option)
 EndEvent
 
 Bool Function ImportUserSettings()
-	; About page
+	; General settings
 	; data/SKSE/Plugins/StorageUtilData/ArousedNips/config.json
+	bool oldDebugMode = TTT_ArousedNipsMainQuest.DebugMode
 	Load(TTT_AN_Config_file)
 	TTT_ArousedNipsMainQuest.DebugMode         = (GetStringValue(TTT_AN_Config_file, "debugmode",         "0") as int) as bool
 	TTT_ArousedNipsMainQuest.IgnoreMales       = (GetStringValue(TTT_AN_Config_file, "ignoremales",       "1") as int) as bool
@@ -490,11 +583,25 @@ Bool Function ImportUserSettings()
 	TTT_ArousedNipsMainQuest.IgnoreMaleBeast   = (GetStringValue(TTT_AN_Config_file, "ignoremalebeast",   "1") as int) as bool
 	TTT_ArousedNipsMainQuest.IgnoreFemaleBeast = (GetStringValue(TTT_AN_Config_file, "ignorefemalebeast", "1") as int) as bool
 	TTT_ArousedNipsMainQuest.ScanCellRadius    = GetStringValue(TTT_AN_Config_file, "scancellradius", "1000") as float
+	TTT_ArousedNipsMainQuest.PollInterval      = GetStringValue(TTT_AN_Config_file, "pollinterval",   "5")    as float
+	; "Natural" (not "") as the missing-default: config.json files exported by
+	; 2.1.2 / 2.1.3 never carried this key, and the built-in slider defaults those
+	; versions shipped are the Natural tier -- so blanking the label to "Choose..."
+	; on such an import would misreport a preset that IS effectively selected.
+	TTT_ArousedNipsMainQuest.IntensityPreset   = GetStringValue(TTT_AN_Config_file, "intensitypreset", "Natural")
 	; Under-armor suppression (added later) -- defaults match the quest's declared
 	; property defaults so pre-existing config.json files hydrate cleanly.
 	TTT_ArousedNipsMainQuest.SuppressUnderArmor = (GetStringValue(TTT_AN_Config_file, "suppressunderarmor", "1") as int) as bool
 	TTT_ArousedNipsMainQuest.UnderArmorScale    = GetStringValue(TTT_AN_Config_file, "underarmorscale", "0") as float
 	UnLoad(TTT_AN_Config_file, false, false)
+
+	; An imported DebugMode change must grant/remove the debug spell on menu
+	; close, same as toggling it by hand.
+	If TTT_ArousedNipsMainQuest.DebugMode != oldDebugMode
+		toggleDebugSpell = true
+	EndIf
+	; Re-arm the poll at the imported interval (also handles 0 <-> non-zero).
+	TTT_ArousedNipsMainQuest.TTT_ArousedNipsPlayerAlias.RestartPolling()
 
 	; Sliders
 	; data/SKSE/Plugins/StorageUtilData/ArousedNips/morph.json
@@ -518,6 +625,9 @@ Bool Function ImportUserSettings()
 			i += 1
 		EndWhile
 		TTT_AN_Morphs = in
+		; Rebuild MaxDefault against the imported names NOW, not on the next game
+		; load -- otherwise the R-key slider default serves values from the old table.
+		TTT_ArousedNipsMainQuest.ResetDefaults()
 	endif
 	UnLoad(TTT_AN_Morph_file, false, false)
 	return TRUE
@@ -580,13 +690,15 @@ EndFunction
 Bool Function ExportUserSettings()
 	Load(TTT_AN_Config_file)
 	Load(TTT_AN_Morph_file)
-	; About page
+	; General settings
 	SetStringValue(TTT_AN_Config_file, "debugmode",         (TTT_ArousedNipsMainQuest.DebugMode         as int) as string)
 	SetStringValue(TTT_AN_Config_file, "ignoremales",       (TTT_ArousedNipsMainQuest.IgnoreMales       as int) as string)
 	SetStringValue(TTT_AN_Config_file, "ignoredead",        (TTT_ArousedNipsMainQuest.IgnoreDead        as int) as string)
 	SetStringValue(TTT_AN_Config_file, "ignoremalebeast",   (TTT_ArousedNipsMainQuest.IgnoreMaleBeast   as int) as string)
 	SetStringValue(TTT_AN_Config_file, "ignorefemalebeast", (TTT_ArousedNipsMainQuest.IgnoreFemaleBeast as int) as string)
 	SetStringValue(TTT_AN_Config_file, "scancellradius",     TTT_ArousedNipsMainQuest.ScanCellRadius              as string)
+	SetStringValue(TTT_AN_Config_file, "pollinterval",       TTT_ArousedNipsMainQuest.PollInterval                as string)
+	SetStringValue(TTT_AN_Config_file, "intensitypreset",    TTT_ArousedNipsMainQuest.IntensityPreset)
 	SetStringValue(TTT_AN_Config_file, "suppressunderarmor", (TTT_ArousedNipsMainQuest.SuppressUnderArmor as int) as string)
 	SetStringValue(TTT_AN_Config_file, "underarmorscale",     TTT_ArousedNipsMainQuest.UnderArmorScale            as string)
 	; Clear any previously-exported list so we don't accumulate duplicates across exports.
