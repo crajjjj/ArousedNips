@@ -161,9 +161,12 @@ Event OnPlayerLoadGame()
 	; Player-only polling refresh. SLA NG only fires sla_UpdateComplete on its
 	; scheduled scan (default 120s); polling here keeps the player's morphs
 	; responsive to mid-scene arousal changes (OSL/OStim, denial ramps, etc.)
-	; without lowering SLA's global scan frequency.
+	; without lowering SLA's global scan frequency. Skipped entirely while the
+	; mod is switched off in the MCM -- the mod event registrations above are
+	; kept (their handlers bail on the ModEnabled gate), but there is no reason
+	; to burn an OnUpdate tick every few seconds for a dormant mod.
 	Float pollInterval = TTT_ArousedNipsMainQuest.PollInterval
-	If pollInterval > 0.0
+	If pollInterval > 0.0 && TTT_ArousedNipsMainQuest.ModEnabled
 		RegisterForSingleUpdate(pollInterval)
 	EndIf
 
@@ -175,8 +178,10 @@ EndEvent
 
 Event OnUpdate()
 	{Player-only refresh between SLA heartbeats.}
-	If !(TTT_ArousedNipsMainQuest.isNioOk && (TTT_ArousedNipsMainQuest.isSLAroused28 || TTT_ArousedNipsMainQuest.isSLAroused29))
-		; Requirements were lost (mod uninstalled / disabled mid-save) — stop polling.
+	If !IsActive()
+		; Switched off in the MCM, or the requirements were lost (SLA / RaceMenu
+		; uninstalled mid-save) -- stop polling. Re-armed by RestartPolling,
+		; SetModEnabled, or the next OnPlayerLoadGame.
 		return
 	EndIf
 
@@ -194,9 +199,133 @@ Function RestartPolling()
 	 (and so dialing 0 -> non-zero can restart a stopped poll loop).}
 	UnregisterForUpdate()
 	Float pollInterval = TTT_ArousedNipsMainQuest.PollInterval
-	If pollInterval > 0.0 && TTT_ArousedNipsMainQuest.isNioOk && (TTT_ArousedNipsMainQuest.isSLAroused28 || TTT_ArousedNipsMainQuest.isSLAroused29)
+	If pollInterval > 0.0 && IsActive()
 		RegisterForSingleUpdate(pollInterval)
 	EndIf
+EndFunction
+
+Bool Function IsActive()
+	{Single gate for every code path that writes morphs: the mod must be switched
+	 on in the MCM AND its requirements must be satisfied. Cheap (three property
+	 reads, && short-circuits), so it is fine to call per tick / per actor.}
+	Return TTT_ArousedNipsMainQuest.ModEnabled && TTT_ArousedNipsMainQuest.isNioOk && (TTT_ArousedNipsMainQuest.isSLAroused28 || TTT_ArousedNipsMainQuest.isSLAroused29)
+EndFunction
+
+Function SetModEnabled(Bool enabled)
+	{MCM entry point for the master on/off toggle. Owns the whole transition so the
+	 switch takes effect immediately instead of on the next heartbeat:
+
+	   off -> on : re-apply the morphs now and re-arm the poll loop.
+	   on -> off : stop the poll loop and CLEAR every morph this mod wrote, so the
+	               body snaps back to its BodySlide baseline. Leaving them frozen at
+	               the last-applied value would make "disabled" indistinguishable
+	               from "stuck", which is exactly what the toggle exists to rule out.
+
+	 Both directions cover the player AND the aroused NPCs in scan range, so the
+	 switch reads the same on everyone -- re-applying only the player would leave
+	 nearby NPCs flat until SLA's next heartbeat (up to 120s).
+
+	 tweenGen is bumped first: a reveal tween in flight (TweenPlayerReveal) would
+	 otherwise keep writing morphs for up to a second after we cleared them. The
+	 ModEnabled write happens before either branch, so SetActorMorphs' own gate
+	 also shuts out a tween that wakes up mid-transition.}
+	tweenGen += 1
+	TTT_ArousedNipsMainQuest.ModEnabled = enabled
+	If enabled
+		Bool doDebug = TTT_ArousedNipsMainQuest.DebugMode
+		UpdateActor(Game.GetPlayer(), doDebug)
+		UpdateNearbyActors(doDebug)
+		RestartPolling()
+	Else
+		UnregisterForUpdate()
+		ClearAllMorphs()
+	EndIf
+EndFunction
+
+Actor[] Function ScanNearbyAroused(Bool ignoreDead)
+	{The aroused NPCs around the player, or None when SLA can't be queried. Shared by
+	 the SLA heartbeat and by both directions of the master switch so the three agree
+	 on which actors count as "nearby".
+
+	 slaArousal is itself an Auto property on slaframeworkscr -- if SLA's own ESP is
+	 broken-wired the same way ours has been seen to be, this comes back None and
+	 MiscUtil.ScanCellNPCsByFaction(None, ...) is unspecified, so bail instead.}
+	slaFrameworkScr framework = GetFramework()
+	If !framework
+		Return None
+	EndIf
+	If !framework.slaArousal
+		If TTT_ArousedNipsMainQuest.DebugMode
+			debug.Trace("TTT_ArousedNips: framework.slaArousal is None; skipping NPC scan")
+		EndIf
+		Return None
+	EndIf
+	Return MiscUtil.ScanCellNPCsByFaction(framework.slaArousal, Game.GetPlayer(), TTT_ArousedNipsMainQuest.ScanCellRadius, 0, 127, ignoreDead)
+EndFunction
+
+Function UpdateNearbyActors(Bool doDebug)
+	{Push morphs to the aroused NPCs in scan range. Used when the mod is switched back
+	 on, so NPCs come back at the same moment the player does.}
+	Actor[] theActors = ScanNearbyAroused(TTT_ArousedNipsMainQuest.IgnoreDead)
+	If !theActors
+		return
+	EndIf
+	int i = 0
+	int len = theActors.length
+	While i < len
+		; Scan results can have null slots if SLA's faction-rank cache is mid-update.
+		If theActors[i]
+			UpdateActor(theActors[i], doDebug)
+		EndIf
+		i += 1
+	EndWhile
+EndFunction
+
+Function ClearActorMorphs(Actor who)
+	{Drop every morph registered under our NIO key for this actor and push the model
+	 update. Only our key is touched, so morphs owned by other mods (or the user's
+	 own RaceMenu sliders) survive untouched.}
+	If !who
+		return
+	EndIf
+	NiOverride.ClearBodyMorphKeys(who, NIO_KEY)
+	NiOverride.UpdateModelWeight(who)
+EndFunction
+
+Function ClearAllMorphs()
+	{Remove this mod's morphs from the player and from the aroused NPCs currently in
+	 scan range. Used when the mod is switched off in the MCM.
+
+	 The isNioOk bail is not just an optimisation: the master toggle is deliberately
+	 never greyed out (it has to stay usable to get back out of the disabled state),
+	 so it can be clicked on an install with no SKEE at all -- where these natives
+	 have no implementation to bind to. Nothing was ever written in that state, so
+	 there is nothing to clear.
+
+	 IgnoreDead is deliberately false here (unlike the heartbeat scan): a corpse that
+	 was morphed while alive still carries our morphs and should be cleaned up too.
+	 NPCs outside ScanCellRadius keep their last morph values until they come back
+	 into range with the mod re-enabled -- unavoidable without a global actor sweep,
+	 and called out in the MCM info text.}
+	PlayerArmorScale = 1.0
+	PlayerLastArousal = 0
+	If !TTT_ArousedNipsMainQuest.isNioOk
+		return
+	EndIf
+	ClearActorMorphs(Game.GetPlayer())
+
+	Actor[] theActors = ScanNearbyAroused(false)
+	If !theActors
+		return
+	EndIf
+	int i = 0
+	int len = theActors.length
+	While i < len
+		If theActors[i]
+			ClearActorMorphs(theActors[i])
+		EndIf
+		i += 1
+	EndWhile
 EndFunction
 
 Int Function PokePlayerArousal()
@@ -207,8 +336,13 @@ Int Function PokePlayerArousal()
 	   -2  UpdateActor declined to write -- the actor filters excluded the player
 	       (male PC with Ignore males on, dead, etc). Reporting an arousal number
 	       here would be a false pass: no morphs were applied.
+	   -3  The mod is switched off in the MCM ("Mod enabled"), so nothing is written
+	       by design.
 	 The returned value is the one UpdateActor wrote (via PlayerLastArousal), not a
 	 second independent GetActorArousal read, so the row can't disagree with the body.}
+	If !TTT_ArousedNipsMainQuest.ModEnabled
+		Return -3
+	EndIf
 	If !GetFramework()
 		Return -1
 	EndIf
@@ -299,7 +433,7 @@ Function RefreshOnArmorChange(Form akBaseObject, Bool wasRemoved)
 	If !TTT_ArousedNipsMainQuest.SuppressUnderArmor
 		return
 	EndIf
-	If !(TTT_ArousedNipsMainQuest.isNioOk && (TTT_ArousedNipsMainQuest.isSLAroused28 || TTT_ArousedNipsMainQuest.isSLAroused29))
+	If !IsActive()
 		return
 	EndIf
 	Armor armo = akBaseObject as Armor
@@ -323,6 +457,11 @@ EndFunction
 
 Event OnArousalComputed(string eventName, string argString, float argNum, form sender)
 	{SLA broadcast at the end of each scan tick. Refresh the player, then any nearby aroused NPCs.}
+	If !TTT_ArousedNipsMainQuest.ModEnabled
+		; Switched off in the MCM. The mod event registration is only (re)made on
+		; game load, not on the toggle, so the gate lives here.
+		return
+	EndIf
 	bool doDebug = TTT_ArousedNipsMainQuest.DebugMode
 	If doDebug
 		debug.Notification("ArousedNips: Arousal event")
@@ -339,26 +478,15 @@ Event OnArousalComputed(string eventName, string argString, float argNum, form s
 		return
 	EndIf
 
-	; Defensive accessor -- normally just returns the populated Auto property.
-	; If something unusual happened (mid-session SLA reinstall, etc.) the
-	; accessor re-resolves and re-populates so we don't silently skip ticks
-	; on a cosmetic property glitch.
-	slaFrameworkScr framework = GetFramework()
-	If !framework
+	; ScanNearbyAroused re-resolves the framework defensively (mid-session SLA
+	; reinstall, cosmetically unwired Auto property) and returns None if SLA
+	; can't be queried at all -- skip the tick rather than poke PapyrusUtil
+	; with a null faction.
+	Actor[] theActors = ScanNearbyAroused(TTT_ArousedNipsMainQuest.IgnoreDead)
+	If !theActors
 		return
 	EndIf
-	; slaArousal is itself an Auto property on slaframeworkscr -- if SLA's own
-	; ESP is broken-wired the same way ours was, this comes back None and
-	; MiscUtil.ScanCellNPCsByFaction(None, ...) is unspecified. Skip the tick
-	; rather than poke PapyrusUtil with a null faction.
-	If !framework.slaArousal
-		If doDebug
-			debug.Trace("TTT_ArousedNips: framework.slaArousal is None; skipping NPC scan this tick")
-		EndIf
-		return
-	EndIf
-	Actor[] theActors = MiscUtil.ScanCellNPCsByFaction(framework.slaArousal, Game.GetPlayer(), TTT_ArousedNipsMainQuest.ScanCellRadius, 0, 127, TTT_ArousedNipsMainQuest.IgnoreDead)
-	; theActors can have null slots if SLA's faction faction-rank cache is mid-update.
+	; theActors can have null slots if SLA's faction-rank cache is mid-update.
 	int i = 0
 	int len = theActors.length
 	While i < len
@@ -385,6 +513,11 @@ Bool Function UpdateActor(Actor who, bool doDebug=false, int modifier=0)
 		; Callers (OnArousalComputed, OnStageStart) guard their array entries,
 		; but the debug spell's crosshair fallback and any third-party script
 		; that ends up here can still pass None. Bail rather than null-deref.
+		return false
+	EndIf
+	If !TTT_ArousedNipsMainQuest.ModEnabled
+		; Master switch off. Belt and braces: the event handlers already bail, but
+		; the debug spell and any third-party caller reach UpdateActor directly.
 		return false
 	EndIf
 	ActorBase whoBase = who.GetLeveledActorBase()
@@ -474,7 +607,15 @@ Function SetActorMorphs(Actor who, Int arousal, Float scale, Bool doDebug=false)
 	 Shared by UpdateActor (a single snap) and TweenPlayerReveal (one step of the
 	 reveal ease). Iterates the morph table until the first empty slot; honours
 	 imported counts up to 128. Papyrus && short-circuits, so MorphNames[j] is not
-	 read once j hits 128.}
+	 read once j hits 128.
+
+	 The ModEnabled check is here, at the single point where morphs are written,
+	 because every external call in this file unlocks the script: the MCM thread can
+	 enter SetModEnabled part-way through a tween step and clear the morphs, and
+	 without this gate the rest of the step would paint them straight back on.}
+	If !TTT_ArousedNipsMainQuest.ModEnabled
+		return
+	EndIf
 	String[] morphNames = TTT_ArousedNipsMainQuest.MorphNames
 	Float[]  maxValues  = TTT_ArousedNipsMainQuest.MaxValue
 	int j = 0
@@ -496,6 +637,13 @@ Function TweenPlayerReveal()
 	 removed. Player-only. Arousal is read once and held constant across the short
 	 tween. Overlap-guarded: bumps tweenGen and bails if a newer update (another
 	 equip change, the poll, or the heartbeat) supersedes it mid-ease.}
+	If !IsActive()
+		; RefreshOnArmorChange checked this too, but it then waits 0.3s for Advanced
+		; Nudity Detection -- long enough for the master switch to be flipped off in
+		; between. Without this the tween would claim tweenGen (so SetModEnabled's
+		; bump can't stop it) and re-apply morphs a second after they were cleared.
+		return
+	EndIf
 	Actor player = Game.GetPlayer()
 	If !player
 		return
@@ -547,6 +695,9 @@ EndFunction
 
 Event OnStageStart(string eventName, string argString, float argNum, form sender)
 	{Experimental.}
+	If !TTT_ArousedNipsMainQuest.ModEnabled
+		return
+	EndIf
 	Actor[] actorList = SexLabQuestFramework.HookActors(argString)
 	If !actorList
 		return

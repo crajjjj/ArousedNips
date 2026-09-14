@@ -1,4 +1,4 @@
-ArousedNips 2.1.4
+ArousedNips 2.1.5
 by TanookiTamaTachi
 
 This is a small mod that applies BodyMorphs to characters' nipples, depending on their arousal.
@@ -70,6 +70,27 @@ Just remove the mod. NiOverride will automatically remove all the morphs.
 yeh. That's all.
 
 Changes
+2.1.5 (by crajjjj)
+- New MCM "Mod enabled" master switch, at the top of the General page.
+  Turning it off stops the mod completely:
+    * The arousal morphs are cleared from the player and from the aroused
+      NPCs in scan range, so bodies return to their BodySlide baseline
+      instead of freezing at the last-applied value. Only this mod's
+      NiOverride key is touched -- morphs owned by other mods and your own
+      RaceMenu sliders are left alone.
+    * The player poll is unregistered and the SexLab Aroused heartbeat,
+      SexLab StageStart and armor equip/unequip handlers all bail out, so
+      there is no script work at all while it is off.
+    * Your slider tuning, presets and filter settings are kept; switching
+      it back on re-applies the morphs immediately and restarts the poll.
+  NPCs further away than the NPC scan radius keep their last morphs until
+  they are near you again with the mod switched back on.
+- Every other MCM option greys out while the mod is off. "Mod enabled"
+  itself and Import / Export / Reset stay clickable -- they are the way
+  back out.
+- The switch round-trips through Import/Export (config.json key
+  "modenabled"; config files written before 2.1.5 import as enabled).
+
 2.1.4 (by crajjjj)
 - MCM reworked into two pages. The old single page ran past SkyUI's
   ~26-row column limit once the full 23-morph slider set shipped, so the

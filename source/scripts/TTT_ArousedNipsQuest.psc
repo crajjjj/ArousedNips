@@ -8,6 +8,15 @@ bool Property isNioOk = false Auto Hidden
 bool Property isSLAroused28 = false Auto Hidden
 bool Property isSLAroused29 = false Auto Hidden
 
+; Master on/off switch (MCM "Mod enabled", General page). When false the mod
+; goes fully dormant: the player poll is unregistered, the SLA heartbeat /
+; SexLab StageStart / armor-change handlers bail immediately, and UpdateActor
+; refuses to write. Switching it off also CLEARS every morph this mod owns
+; (NIO key "TTT_ArousedNips.esp") from the player and nearby NPCs, so the body
+; returns to its BodySlide baseline rather than freezing at the last value.
+; See TTT_ArousedNipsAlias.SetModEnabled / IsActive / ClearAllMorphs.
+bool Property ModEnabled = true Auto Hidden
+
 bool Property DebugMode = false Auto Hidden
 bool Property IgnoreMales = true Auto Hidden
 
@@ -60,8 +69,9 @@ float Property DefaultArea = 0.0 AutoReadOnly Hidden
 float Property PollInterval = 5.0 Auto Hidden
 float Property DefaultPollInterval = 5.0 AutoReadOnly Hidden
 
-; NPC cell-scan radius (units) used by OnArousalComputed's
-; MiscUtil.ScanCellNPCsByFaction call. Replaces the previously-hardcoded
+; NPC cell-scan radius (units) used by every nearby-NPC sweep
+; (TTT_ArousedNipsAlias.ScanNearbyAroused -- the SLA heartbeat and both
+; directions of the MCM master switch). Replaces the previously-hardcoded
 ; 1000 from 1.1.5 and earlier. Default 1000 preserves prior behaviour.
 ; Range in MCM: 100 (very tight) to 10000 (full exterior cell).
 float Property ScanCellRadius = 1000.0 Auto Hidden
@@ -113,6 +123,7 @@ Function ResetAllState()
 	ApplyMorphSet()
 
 	; Toggles + sliders back to their declared defaults.
+	ModEnabled        = true
 	DebugMode         = false
 	IgnoreMales       = true
 	IgnoreDead        = true

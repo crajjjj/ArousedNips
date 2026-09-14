@@ -7,7 +7,13 @@ Spell Property TTT_ArousedNipsDebugSpell Auto
 float property range = 3.0 AutoReadOnly hidden
 
 int hasReqFlag
+; Requirements-only variant of hasReqFlag: set when NiOverride / SLA are missing,
+; but NOT when the mod is merely switched off. Used by the options that are
+; diagnostics rather than tuning, so they keep working in the state they exist to
+; report on.
+int reqOnlyFlag
 
+int oidModEnabled
 int oidDebugMode
 int oidIgnoreMales
 int oidPollInterval
@@ -64,7 +70,11 @@ int function GetVersion()
 	; import syncs the debug spell). Install-default slider values rebased
 	; from the Noticeable tier to the Natural tier (DefaultForMorph ==
 	; Natural.json; fresh installs / Reset show preset "Natural").
-	return 20104
+	; 2.01.05 adds the "Mod enabled" master switch at the top of the General
+	; page. Switching it off clears this mod's morphs from the player and
+	; nearby NPCs and puts the alias fully dormant (no poll, no heartbeat /
+	; StageStart / armor-change work); every other option greys out while off.
+	return 20105
 endFunction
 
 Event OnVersionUpdate(Int ver)
@@ -122,15 +132,28 @@ Function SetupPages()
 EndFunction
 
 Function RefreshReqFlag()
-	{Recompute the disabled-flag applied to every requirement-gated option.
+	{Recompute the disabled-flag applied to every tuning option: set when the mod is
+	 switched off with the "Mod enabled" master toggle, or when its requirements
+	 aren't met. Either way nothing the flagged options control has any effect, so
+	 greying them out is honest rather than merely tidy.
 
-	 Must run on EVERY page draw, not once per menu open: Recovery > Reset re-runs
-	 the requirements check mid-menu (ResetAllState -> Alias.OnPlayerLoadGame) and
-	 then redraws. A flag cached at open time would leave the gated options greyed
-	 out against freshly-drawn "OK" status rows until the MCM was closed and
-	 reopened -- failing exactly the recovery path Reset exists for.}
-	hasReqFlag = 0
+	 Must run on EVERY page draw, not once per menu open: both the master toggle and
+	 Recovery > Reset change this mid-menu and then redraw (Reset re-runs the
+	 requirements check via ResetAllState -> Alias.OnPlayerLoadGame). A flag cached at
+	 open time would leave the gated options greyed out against freshly-drawn "OK"
+	 status rows until the MCM was closed and reopened -- failing exactly the recovery
+	 path Reset exists for.
+
+	 Deliberately NOT applied to "Mod enabled" itself, nor to Import / Export /
+	 Reset: those have to stay usable to get back out of the disabled state. The
+	 "Player arousal" check row and Debug mode take reqOnlyFlag instead -- they are
+	 diagnostics, and a switched-off mod is a thing you may well want to diagnose.}
+	reqOnlyFlag = 0
 	If !(TTT_ArousedNipsMainQuest.isNioOk && (TTT_ArousedNipsMainQuest.isSLAroused28 || TTT_ArousedNipsMainQuest.isSLAroused29))
+		reqOnlyFlag = OPTION_FLAG_DISABLED
+	EndIf
+	hasReqFlag = reqOnlyFlag
+	If !TTT_ArousedNipsMainQuest.ModEnabled
 		hasReqFlag = OPTION_FLAG_DISABLED
 	EndIf
 EndFunction
@@ -168,6 +191,7 @@ Function ClearOptionIDs()
 	 numerically collide with a fresh oid on this one and misroute the handler
 	 (e.g. a morph slider opening with the poll-interval dialog range). Wipe
 	 everything to -1 before each page draw.}
+	oidModEnabled         = -1
 	oidDebugMode          = -1
 	oidIgnoreMales        = -1
 	oidPollInterval       = -1
@@ -190,6 +214,9 @@ Function DrawGeneralPage()
 	;Left side
 	SetCursorPosition(0)
 	AddHeaderOption("ArousedNips " + version)
+	; Master switch. Never carries hasReqFlag -- it's the way back out of the
+	; disabled state, so it has to stay clickable.
+	oidModEnabled = AddToggleOption("Mod enabled", TTT_ArousedNipsMainQuest.ModEnabled)
 
 	AddHeaderOption("Requirements")
 	; Plain (disabled) status text, not clickable toggles -- these are read-only.
@@ -207,7 +234,7 @@ Function DrawGeneralPage()
 	AddTextOption("SexLab Aroused", slaLabel, OPTION_FLAG_DISABLED)
 	; Live sanity check: click to read arousal fresh from SLA and re-apply morphs
 	; (PokePlayerArousal on the alias).
-	AddTextOptionST("State_CheckPlayer", "Player arousal", "Check now", hasReqFlag)
+	AddTextOptionST("State_CheckPlayer", "Player arousal", "Check now", reqOnlyFlag)
 
 	AddHeaderOption("Intensity preset")
 	; Display the last-selected preset name ("Natural" on fresh install / after
@@ -245,6 +272,8 @@ Function DrawGeneralPage()
 	oidIgnoreFemaleBeast = AddToggleOption("Ignore female beasts", TTT_ArousedNipsMainQuest.IgnoreFemaleBeast)
 
 	AddHeaderOption("Debug")
+	; Not gated: its traces and the debug spell are exactly what you want when the
+	; requirements check is failing or the mod has been switched off.
 	oidDebugMode = AddToggleOption("Debug mode", TTT_ArousedNipsMainQuest.DebugMode)
 
 	AddHeaderOption("Import / Export")
@@ -302,6 +331,9 @@ state State_CheckPlayer
 		int arousal = TTT_ArousedNipsMainQuest.TTT_ArousedNipsPlayerAlias.PokePlayerArousal()
 		If arousal == -1
 			SetTextOptionValueST("SLA unavailable")
+		ElseIf arousal == -3
+			; Master switch is off -- the mod writes nothing by design.
+			SetTextOptionValueST("mod disabled")
 		ElseIf arousal == -2
 			; The actor filters (Ignore males / dead / beasts) excluded the player, so
 			; UpdateActor wrote nothing -- reporting a number here would be a false pass.
@@ -383,7 +415,16 @@ state State_IntensityPreset
 endstate
 
 event OnOptionSelect(int option)
-	if option == oidDebugMode
+	if option == oidModEnabled
+		; SetModEnabled owns the whole transition (clear morphs / re-apply, stop or
+		; re-arm the poll) and writes the property itself, so read it back rather
+		; than assuming. ForcePageReset redraws so every other option greys out
+		; (or comes back) to match.
+		TTT_ArousedNipsMainQuest.TTT_ArousedNipsPlayerAlias.SetModEnabled(!TTT_ArousedNipsMainQuest.ModEnabled)
+		SetToggleOptionValue(option, TTT_ArousedNipsMainQuest.ModEnabled)
+		ForcePageReset()
+		return
+	elseif option == oidDebugMode
 		TTT_ArousedNipsMainQuest.DebugMode = !TTT_ArousedNipsMainQuest.DebugMode
 		SetToggleOptionValue(option,TTT_ArousedNipsMainQuest.DebugMode)
 		toggleDebugSpell = true
@@ -415,7 +456,12 @@ endEvent
 
 
 event OnOptionDefault(int option)
-	if option == oidDebugMode
+	if option == oidModEnabled
+		TTT_ArousedNipsMainQuest.TTT_ArousedNipsPlayerAlias.SetModEnabled(true)
+		SetToggleOptionValue(option,true)
+		ForcePageReset()
+		return
+	Elseif option == oidDebugMode
 		TTT_ArousedNipsMainQuest.DebugMode = false
 		SetToggleOptionValue(option,false)
 		toggleDebugSpell = true
@@ -536,7 +582,9 @@ Event OnOptionSliderAccept(Int option, Float value)
 EndEvent
 
 Event OnOptionHighlight(Int option)
-	If option == oidDebugMode
+	If option == oidModEnabled
+		SetInfoText("Master switch. Turn it off to stop the mod completely: the arousal morphs are cleared from you and from nearby NPCs (back to your BodySlide baseline), the player poll stops, and the SexLab / SexLab Aroused events are ignored -- no script work at all. Your slider tuning is kept, so turning it back on restores everything. NPCs further away than the scan radius keep their last morphs until they are near you again with the mod on.")
+	ElseIf option == oidDebugMode
 		SetInfoText("Will print debug info to screen and log.")
 	ElseIf option == oidIgnoreMales
 		SetInfoText("If on, male NPC actors are skipped entirely (no morph updates). On by default.")
@@ -573,7 +621,11 @@ Bool Function ImportUserSettings()
 	; General settings
 	; data/SKSE/Plugins/StorageUtilData/ArousedNips/config.json
 	bool oldDebugMode = TTT_ArousedNipsMainQuest.DebugMode
+	bool oldModEnabled = TTT_ArousedNipsMainQuest.ModEnabled
 	Load(TTT_AN_Config_file)
+	; Master switch. Missing-default "1" so config.json files written before 2.1.5
+	; import as enabled rather than silently switching the mod off.
+	TTT_ArousedNipsMainQuest.ModEnabled        = (GetStringValue(TTT_AN_Config_file, "modenabled",        "1") as int) as bool
 	TTT_ArousedNipsMainQuest.DebugMode         = (GetStringValue(TTT_AN_Config_file, "debugmode",         "0") as int) as bool
 	TTT_ArousedNipsMainQuest.IgnoreMales       = (GetStringValue(TTT_AN_Config_file, "ignoremales",       "1") as int) as bool
 	; 2.1.0 cherry-picked toggles & slider -- missing-defaults match the quest's
@@ -600,9 +652,6 @@ Bool Function ImportUserSettings()
 	If TTT_ArousedNipsMainQuest.DebugMode != oldDebugMode
 		toggleDebugSpell = true
 	EndIf
-	; Re-arm the poll at the imported interval (also handles 0 <-> non-zero).
-	TTT_ArousedNipsMainQuest.TTT_ArousedNipsPlayerAlias.RestartPolling()
-
 	; Sliders
 	; data/SKSE/Plugins/StorageUtilData/ArousedNips/morph.json
 	Load(TTT_AN_Morph_file)
@@ -630,6 +679,19 @@ Bool Function ImportUserSettings()
 		TTT_ArousedNipsMainQuest.ResetDefaults()
 	endif
 	UnLoad(TTT_AN_Morph_file, false, false)
+
+	; Deliberately last, after the morph table above has landed: an imported flip of
+	; the master switch has to run the full transition (clear morphs / re-apply +
+	; poll), and re-applying before the sliders were read would paint the body with
+	; the pre-import values -- and leave them there if the imported poll interval is
+	; 0. SetModEnabled re-writes the property to the value it already holds, which is
+	; harmless.
+	If TTT_ArousedNipsMainQuest.ModEnabled != oldModEnabled
+		TTT_ArousedNipsMainQuest.TTT_ArousedNipsPlayerAlias.SetModEnabled(TTT_ArousedNipsMainQuest.ModEnabled)
+	Else
+		; Re-arm the poll at the imported interval (also handles 0 <-> non-zero).
+		TTT_ArousedNipsMainQuest.TTT_ArousedNipsPlayerAlias.RestartPolling()
+	EndIf
 	return TRUE
 EndFunction
 
@@ -691,6 +753,7 @@ Bool Function ExportUserSettings()
 	Load(TTT_AN_Config_file)
 	Load(TTT_AN_Morph_file)
 	; General settings
+	SetStringValue(TTT_AN_Config_file, "modenabled",        (TTT_ArousedNipsMainQuest.ModEnabled        as int) as string)
 	SetStringValue(TTT_AN_Config_file, "debugmode",         (TTT_ArousedNipsMainQuest.DebugMode         as int) as string)
 	SetStringValue(TTT_AN_Config_file, "ignoremales",       (TTT_ArousedNipsMainQuest.IgnoreMales       as int) as string)
 	SetStringValue(TTT_AN_Config_file, "ignoredead",        (TTT_ArousedNipsMainQuest.IgnoreDead        as int) as string)
